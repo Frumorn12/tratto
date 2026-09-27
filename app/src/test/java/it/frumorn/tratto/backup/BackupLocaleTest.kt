@@ -1,6 +1,10 @@
 package it.frumorn.tratto.backup
 
 import it.frumorn.tratto.data.Archivio
+import it.frumorn.tratto.data.FormatoOggetti
+import it.frumorn.tratto.data.Immagine
+import it.frumorn.tratto.data.Testo
+import it.frumorn.tratto.data.TestoRicco
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -331,7 +335,72 @@ class BackupLocaleTest {
         assertEquals("A", visto)
     }
 
+    // ------------------------------------------------------------ oggetti e immagini
+
+    @Test
+    fun oggettiEImmaginiFannoIlGiroCompleto() {
+        val altro = File(tmp.root, "altro/tratto")
+        nota(altro, "aaaa", "pagine A")
+        val immagine = ByteArray(5000) { (it * 31).toByte() }
+        conOggetti(altro, "aaaa", immagine)
+        scriviIndice(altro, listOf(voce("aaaa", "A", 10)))
+
+        val dati = backupDi(altro)
+        val voci = vociZip(dati)
+        assertTrue("tratto/note/aaaa/pagine/p1.oggetti.json" in voci)
+        assertTrue(immagine contentEquals voci.getValue("tratto/note/aaaa/immagini/foto1.webp"))
+
+        for (modo in ModoRipristino.entries) {
+            radice.deleteRecursively()
+            val r = ripristina(dati, modo)
+            assertEquals(modo.name, 1, r.aggiunte)
+            val archivio = Archivio(radice, temporanei)
+            val oggetti = archivio.oggetti("aaaa", "p1")
+            assertEquals(modo.name, listOf("img", "txt"), oggetti.map { it.id })
+            val img = oggetti[0] as Immagine
+            assertTrue(modo.name, immagine contentEquals archivio.fileImmagine("aaaa", img.file).readBytes())
+            assertEquals("Ciao dal backup", (oggetti[1] as Testo).contenuto.testoSemplice)
+            assertPulito()
+        }
+    }
+
+    @Test
+    fun unisciConfrontaAncheOggettiEImmagini() {
+        // Stessi tratti ma un'immagine diversa: non e' la stessa nota, la piu' vecchia resta come copia.
+        nota(radice, "aaaa", "stesse pagine")
+        conOggetti(radice, "aaaa", byteArrayOf(1, 2, 3))
+        scriviIndice(radice, listOf(voce("aaaa", "A", 100)))
+        val altro = File(tmp.root, "altro/tratto")
+        nota(altro, "aaaa", "stesse pagine")
+        conOggetti(altro, "aaaa", byteArrayOf(1, 2, 4))
+        scriviIndice(altro, listOf(voce("aaaa", "A", 200)))
+
+        val r = ripristina(backupDi(altro), ModoRipristino.UNISCI)
+
+        assertEquals(1, r.copie)
+        val copia = indice().elenco("note").single { it.titolo == "A (copia)" }
+        assertTrue(byteArrayOf(1, 2, 4) contentEquals File(radice, "note/aaaa/immagini/foto1.webp").readBytes())
+        assertTrue(byteArrayOf(1, 2, 3) contentEquals File(radice, "note/${copia.id}/immagini/foto1.webp").readBytes())
+        assertTrue(File(radice, "note/${copia.id}/pagine/p1.oggetti.json").isFile)
+
+        // Con le stesse immagini, invece, nessuna copia.
+        val ancora = ripristina(backupDi(altro), ModoRipristino.UNISCI)
+        assertEquals(0, ancora.copie)
+    }
+
     // ------------------------------------------------------------ supporto
+
+    /** Aggiunge alla pagina p1 della nota un'immagine (con il suo file) e una casella di testo. */
+    private fun conOggetti(radice: File, id: String, immagine: ByteArray) {
+        val dir = File(radice, "note/$id")
+        File(dir, "immagini").mkdirs()
+        File(dir, "immagini/foto1.webp").writeBytes(immagine)
+        val oggetti = listOf(
+            Immagine("img", "immagini/foto1.webp", 10f, 20f, 300f, 200f),
+            Testo("txt", 40f, 400f, 500f, TestoRicco.semplice("Ciao dal backup")),
+        )
+        File(dir, "pagine/p1.oggetti.json").writeText(FormatoOggetti.scrivi(oggetti))
+    }
 
     private fun archivioDiProva(): String {
         nota(radice, "aaaa", "locale A")
