@@ -90,10 +90,34 @@ internal class Forma(val tratto: Tratto) : Ingombro {
 
     /**
      * Un trattino dritto e quasi orizzontale: il meno, una barra di frazione, meta' di un uguale.
-     * Si tollerano una pendenza di circa 15 gradi e un piccolo uncino alle estremita'.
+     * Si tollerano una pendenza di circa 15 gradi e gli uncini alle estremita' (la penna che
+     * scivola appoggiandosi o staccandosi): la parte centrale, senza il primo e l'ultimo 12% del
+     * percorso, deve essere dritta e piatta.
      */
-    val orizzontale: Boolean
-        get() = larghezza >= 3f && altezza <= 0.3f * larghezza + 1f && lunghezza <= 1.4f * larghezza + 2f
+    val orizzontale: Boolean by lazy {
+        if (larghezza < 3f || altezza > 0.6f * larghezza + 2f) return@lazy false
+        if (altezza <= 0.3f * larghezza + 1f && lunghezza <= 1.4f * larghezza + 2f) return@lazy true
+        val n = quanti
+        var percorso = 0f
+        var inizio = -1
+        var fine = -1
+        for (i in 1 until n) {
+            percorso += hypot(x(i) - x(i - 1), y(i) - y(i - 1))
+            if (inizio < 0 && percorso >= 0.12f * lunghezza) inizio = i
+            if (fine < 0 && percorso >= 0.88f * lunghezza) fine = i
+        }
+        if (inizio < 0 || fine <= inizio) return@lazy false
+        var sx = Float.MAX_VALUE; var dx = -Float.MAX_VALUE
+        var su = Float.MAX_VALUE; var giu = -Float.MAX_VALUE
+        var l = 0f
+        for (i in inizio..fine) {
+            sx = min(sx, x(i)); dx = max(dx, x(i))
+            su = min(su, y(i)); giu = max(giu, y(i))
+            if (i > inizio) l += hypot(x(i) - x(i - 1), y(i) - y(i - 1))
+        }
+        val w = dx - sx
+        w >= 0.6f * larghezza && giu - su <= 0.3f * w + 1f && l <= 1.3f * w + 2f
+    }
 
     /**
      * Una parentesi tonda, anche inclinata: tratto stretto con le estremita' in cima e in fondo,
