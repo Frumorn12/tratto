@@ -13,6 +13,7 @@ work = "2.12.0"
 playServicesAuth = "22.0.0"
 junit = "4.13.2"
 orgJson = "20260814"
+mlkitInchiostro = "19.0.0"
 
 [libraries]
 androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "coreKtx" }
@@ -39,6 +40,7 @@ play-services-auth = { module = "com.google.android.gms:play-services-auth", ver
 
 # org.json vero per i test JVM: quello di android.jar e' solo uno stub.
 org-json = { module = "org.json:json", version.ref = "orgJson" }
+mlkit-digital-ink = { module = "com.google.mlkit:digital-ink-recognition", version.ref = "mlkitInchiostro" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

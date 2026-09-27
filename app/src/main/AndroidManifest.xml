@@ -86,7 +86,13 @@
             <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/percorsi_condivisi" />
         </provider>
 
-        <!-- WorkManager si inizializza su richiesta (TrattoApp e' un Configuration.Provider), non all'avvio. -->
+        <!-- ML Kit non si inizializza a ogni avvio: lo fa Trascrittore al primo uso. -->
+        <provider
+            android:name="com.google.mlkit.common.internal.MlKitInitProvider"
+            android:authorities="${applicationId}.mlkitinitprovider"
+            tools:node="remove" />
+
+        <!-- WorkManager (backup su Drive e modelli di ML Kit) parte su richiesta: TrattoApp e' il suo Configuration.Provider. -->
         <provider
             android:name="androidx.startup.InitializationProvider"
             android:authorities="${applicationId}.androidx-startup"
