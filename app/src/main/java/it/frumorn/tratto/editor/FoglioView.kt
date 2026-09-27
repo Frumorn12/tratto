@@ -50,6 +50,13 @@ class FoglioView(context: Context) : View(context) {
             limita(); invalidate()
         }
 
+    /**
+     * Pixel in basso coperti da qualcosa (tastiera e barra del testo mentre si scrive in una casella):
+     * si puo' scorrere oltre la fine della nota di altrettanto, cosi' anche l'ultima riga resta visibile.
+     */
+    var spazioSotto = 0f
+        set(v) { field = v; limita(); invalidate() }
+
     var pizzicando = false
         set(v) { field = v; if (!v) invalidate() }
 
@@ -188,12 +195,12 @@ class FoglioView(context: Context) : View(context) {
         val largo = LARGHEZZA * scala
         tx = if (largo <= width) (width - largo) / 2f else tx.coerceIn(width - largo - 24 * densita, 24 * densita)
         val alto = altezzaTotale() * scala
-        val minTy = min(spazioSopra, height - alto)
+        val minTy = min(spazioSopra, height - spazioSotto - alto)
         ty = ty.coerceIn(minTy, spazioSopra)
     }
 
     val limiteTy: ClosedFloatingPointRange<Float>
-        get() = min(spazioSopra, height - altezzaTotale() * scala)..spazioSopra
+        get() = min(spazioSopra, height - spazioSotto - altezzaTotale() * scala)..spazioSopra
     val limiteTx: ClosedFloatingPointRange<Float>
         get() {
             val largo = LARGHEZZA * scala

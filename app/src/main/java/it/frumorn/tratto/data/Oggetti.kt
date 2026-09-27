@@ -221,6 +221,19 @@ data class TestoRicco(val paragrafi: List<Paragrafo>) {
         )
     }
 
+    /**
+     * Il formato (senza testo) con cui continua a scrivere il cursore in [pos]: quello del carattere prima,
+     * o del primo del paragrafo se il cursore e' all'inizio. Serve quando si cambia il formato senza
+     * selezione: vale per quello che si scrive dopo.
+     */
+    fun formatoCursore(pos: Int): Frammento {
+        val inizi = inizi()
+        val k = paragrafiToccati(pos, pos).first
+        val p = paragrafi[k]
+        val r = (pos - inizi[k]).coerceIn(0, p.lunghezza)
+        return (frammentoIn(p, if (r > 0) r - 1 else 0) ?: Frammento("")).soloCarattere()
+    }
+
     /** Il frammento che contiene il carattere [pos] del paragrafo. */
     private fun frammentoIn(p: Paragrafo, pos: Int): Frammento? {
         var o = 0
