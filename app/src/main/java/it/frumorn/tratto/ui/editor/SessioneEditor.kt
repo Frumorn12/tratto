@@ -206,6 +206,10 @@ class SessioneEditor(private val stato: StatoApp, val id: String, context: Conte
 
     fun eliminaPagina() {
         val d = documento ?: return
+        // Selezioni e caselle aperte si riferiscono alle pagine per posizione: si chiudono prima.
+        vista.chiudiTesto()
+        vista.chiudiSelezione()
+        vista.deselezionaOggetto()
         d.eliminaPagina(vista.foglio.paginaCorrente())
         vista.foglio.dimenticaCache()
         vista.ridisegna()
