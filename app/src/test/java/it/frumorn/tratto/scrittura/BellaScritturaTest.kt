@@ -15,7 +15,7 @@ class BellaScritturaTest {
         @JvmStatic
         fun carica() {
             // I test girano nella cartella del modulo app: l'asset si legge dal sorgente.
-            BellaScrittura.prepara(File("src/main/assets/${BellaScrittura.ASSET}").readBytes())
+            BellaScrittura.prepara(File("src/completa/assets/${BellaScrittura.ASSET}").readBytes())
         }
 
         const val FRASE = "Ciao Andrea, città è però"

@@ -19,7 +19,7 @@ class Quaderno(val stile: Stile = Stile.STAMPATELLO, val altezzaX: Float = 16f) 
 
         fun preparaFont() {
             // I test girano nella cartella del modulo app: l'asset si legge dal sorgente.
-            BellaScrittura.prepara(File("src/main/assets/${BellaScrittura.ASSET}").readBytes())
+            BellaScrittura.prepara(File("src/completa/assets/${BellaScrittura.ASSET}").readBytes())
         }
     }
 

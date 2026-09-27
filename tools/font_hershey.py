@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Genera app/src/main/assets/scrittura/hershey.bin, i font a tratto singolo della "bella scrittura".
+"""Genera app/src/completa/assets/scrittura/hershey.bin, i font a tratto singolo della "bella scrittura".
 
 Prende i glifi ASCII 32..126 di due font Hershey dal pacchetto Python Hershey-Fonts
 (pip install Hershey-Fonts):
@@ -30,7 +30,7 @@ from HersheyFonts import HersheyFonts
 
 FONT = [(0, "cursive"), (1, "futural")]
 PRIMO, ULTIMO = 32, 126
-USCITA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "src", "main", "assets", "scrittura", "hershey.bin")
+USCITA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "src", "completa", "assets", "scrittura", "hershey.bin")
 
 
 def i8(v):

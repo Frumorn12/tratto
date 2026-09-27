@@ -36,7 +36,7 @@ class FrazioneTabletTest {
         @JvmStatic
         fun carica() {
             Quaderno.preparaFont()
-            corsivo = FontHershey.leggi(File("src/main/assets/${BellaScrittura.ASSET}").readBytes())[Stile.CORSIVO]!!
+            corsivo = FontHershey.leggi(File("src/completa/assets/${BellaScrittura.ASSET}").readBytes())[Stile.CORSIVO]!!
         }
 
         const val SCALA = 1.116f

@@ -1,7 +1,7 @@
 Font Hershey usati dalla "bella scrittura" di Tratto
 ===================================================
 
-Il file app/src/main/assets/scrittura/hershey.bin contiene i glifi ASCII 32..126 di due font
+Il file app/src/completa/assets/scrittura/hershey.bin (solo nella versione completa: nella libera bella copia e calcoli non ci sono) contiene i glifi ASCII 32..126 di due font
 Hershey a tratto singolo, convertiti da tools/font_hershey.py:
 
   - "cursive" (corsivo);
