@@ -1,0 +1,28 @@
+Categories:
+  - Note
+  - Writing
+License: MIT
+AuthorName: Andrea Brescia
+SourceCode: https://github.com/Frumorn12/tratto
+IssueTracker: https://github.com/Frumorn12/tratto/issues
+Changelog: https://github.com/Frumorn12/tratto/releases
+
+AutoName: Tratto
+
+RepoType: git
+Repo: https://github.com/Frumorn12/tratto.git
+
+Builds:
+  - versionName: 1.0.0
+    versionCode: 1
+    commit: v1.0.0
+    subdir: app
+    gradle:
+      - libera
+    scandelete:
+      - app/src/main/assets/scrittura/hershey.bin
+
+AutoUpdateMode: Version
+UpdateCheckMode: Tags
+CurrentVersion: 1.0.0
+CurrentVersionCode: 1
