@@ -32,11 +32,17 @@ No accounts, no ads, no analytics. Your notes stay on the tablet, in plain files
 - **Eraser** for whole strokes or partial erasing. It also works while you hold the pen button, or with the eraser end on pens that have one.
 - **Lasso** to move, resize, recolour, copy and paste, even between notes.
 - **Palm rejection**: fingers are ignored while the pen touches or hovers over the screen. Scroll and zoom with two fingers, double-tap to fit the page.
-- **Blank, ruled, grid or dotted** pages, undo and redo, light and dark theme.
+- **Blank, ruled, grid or dotted** pages, undo and redo, light and dark theme. Pull past the last page to add a new one.
+- **Draw with your finger** too, with one tap on the hand button.
+- **Steady brightness while you write**: with adaptive brightness on, the shadow of your hand on the light sensor no longer makes the screen flicker.
+
+### 🔠 Typed text and images
+- **Text boxes** with a Google Docs–style formatting bar above the keyboard: paragraph styles, font, size, bold, italic, underline, strikethrough, colour, highlight, alignment, bulleted and numbered lists.
+- **Images**: insert one from your photos, or long-press the page with a finger and **paste** an image (or text) copied anywhere. Drag to move, pull the corners to resize, copy, duplicate, bring forward or send back. Your ink always stays on top.
 
 ### ⚡ A new note in an instant
 - **Double-click the pen button** and a new note opens right away, from anywhere in the app.
-- **Quick note**: a small sheet that floats over any app, from its Quick Settings tile or the accessibility shortcut. Write, close, and it is already saved in your library; left empty, it leaves nothing behind. Math works there too.
+- **Quick note**: a small sheet that floats over any app, from its Quick Settings tile, the accessibility shortcut, or a double tap on the home screen (with launchers that can open an app on double tap, such as Lawnchair). Write, close, and it is already saved in your library; left empty, it leaves nothing behind. Math works there too.
 - Quick Settings tile, a "New note" launcher shortcut and a dedicated home screen icon.
 - Cold start in about **0.4 seconds** on a Tab S6 Lite. Opening a note animates it out of its cover.
 
@@ -45,7 +51,9 @@ No accounts, no ads, no analytics. Your notes stay on the tablet, in plain files
 - Export notes as **vector PDF** (the ink stays sharp at any zoom), or a single page as an image.
 
 ### 🧮 Handwritten math
-Write an expression followed by `=` and Tratto writes the result next to it, as pen strokes you can edit. It understands `+ − × ÷`, fractions, powers, roots, parentheses, percentages and π.
+Write an expression followed by `=` and Tratto writes the result next to it, as pen strokes you can edit. It understands `+ − × ÷`, fractions, powers, roots, parentheses, percentages and π, and it is tuned on real, hurried handwriting: small or slanted equals signs, exponents written high, digits in two strokes.
+
+Pause after an expression, even without `=`: a soft violet veil shows that Tratto recognised the formula, with the result in a small chip next to it. Tap it and the result is written by hand.
 
 <p align="center">
   <img src="docs/immagini/matematica.png" alt="Handwritten expressions with their results written after the equals sign" width="70%">
@@ -57,6 +65,7 @@ Lasso a sentence to **transcribe** it into text you can copy or share. Or make a
 ### ☁️ Backup
 - **`.tratto` file**: all your notes in one file you can store anywhere, restored by merging or replacing.
 - **Google Drive**: automatic backups (optionally only on Wi‑Fi or while charging) into a folder only Tratto can see. The app asks for the `drive.file` scope, so it cannot read anything else in your Drive. Details in [docs/backup.md](docs/backup.md).
+- **Google Docs, live** (preview): link a note and a Google Doc follows it a few seconds after every change, so people can read it on a PC while you write. Details in [docs/google-docs.md](docs/google-docs.md).
 
 <p align="center">
   <img src="docs/immagini/vetrina-2.png" alt="Pen panel, transcription and dark theme" width="100%">
