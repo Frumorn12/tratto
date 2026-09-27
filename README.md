@@ -9,10 +9,17 @@ App di note a mano per tablet Android con penna (pensata per il Galaxy Tab S6 Li
 
 Stato: in sviluppo.
 
+## Due versioni
+
+- **completa** (predefinita): trascrizione della scrittura e calcoli automatici con ML Kit, backup su Google Drive.
+- **libera**: solo software libero, per F-Droid. Niente ML Kit né Play services; il backup automatico va in una cartella scelta dall'utente (vedi `docs/backup.md`).
+
+Il codice che cambia sta in `app/src/completa` e `app/src/libera`.
+
 ## Compilare
 
 ```sh
 export ANDROID_HOME=$HOME/Android/Sdk
-./gradlew :app:assembleDebug
-adb install -r app/build/outputs/apk/debug/app-debug.apk
+./gradlew :app:assembleCompletaDebug    # oppure assembleLiberaDebug
+adb install -r app/build/outputs/apk/completa/debug/app-completa-debug.apk
 ```

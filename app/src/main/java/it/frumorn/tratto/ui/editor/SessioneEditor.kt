@@ -255,7 +255,8 @@ class SessioneEditor(private val stato: StatoApp, val id: String, context: Conte
     private var calcoli: kotlinx.coroutines.Job? = null
 
     private fun calcola(p: it.frumorn.tratto.editor.PaginaViva, nuovi: List<it.frumorn.tratto.data.Tratto>) {
-        if (!stato.preferenze.calcoliAutomatici) return
+        // Senza riconoscimento della scrittura (versione libera) non si legge l'espressione.
+        if (!Trascrittore.DISPONIBILE || !stato.preferenze.calcoliAutomatici) return
         val d = documento ?: return
         val tutti = synchronized(p) { ArrayList(p.tratti) }
         val stile = stato.preferenze.stileBellaScrittura

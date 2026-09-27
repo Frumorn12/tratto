@@ -7,6 +7,8 @@ Tratto ha due tipi di backup, tutti e due nel pacchetto `it.frumorn.tratto.backu
 
 Hanno le stesse regole di ripristino, così un backup non cancella mai note che esistono solo sul tablet.
 
+Il backup su Drive c'è solo nella versione **completa** dell'app. Nella versione **libera** (quella per F-Droid, senza librerie Google) al suo posto c'è il backup automatico in una cartella: vedi §4.
+
 ---
 
 ## 1. Il formato `.tratto`
@@ -157,10 +159,10 @@ Se l'account Google cambia, lo stato viene azzerato e tutto viene ricaricato nel
 
 ### In background (WorkManager)
 
-- `BackupWorker` è un `CoroutineWorker`.
+- `BackupWorker` è un `CoroutineWorker`, lo stesso nelle due versioni. Chiama `DestinazioneBackup`, che esiste in `src/completa` (Drive) e in `src/libera` (cartella, §4) con la stessa forma: `USA_RETE`, `collegata(stato)`, `esegui(context)` e `daRiprovare(errore)`.
 - `BackupWorker.pianifica(context)` gestisce il **backup giornaliero** (`PeriodicWorkRequest` ogni 24 ore):
   - vincoli: rete non a consumo (se `soloWifi`) oppure qualsiasi, batteria non scarica, e tablet in carica se `soloInCarica`;
-  - viene cancellato se il backup automatico è spento o se non c'è un account collegato;
+  - viene cancellato se il backup automatico è spento o se non c'è un account collegato (nella versione libera: una cartella scelta);
   - viene richiamato da `ImpostazioniBackup.imposta*`, dopo il collegamento e dopo lo scollegamento.
 - `BackupWorker.backupOra(context)` avvia il **backup subito**: lavoro expedited, con qualsiasi rete.
 - Errori temporanei (rete, 5xx, 429): `Result.retry()` fino a 5 tentativi.
@@ -196,11 +198,32 @@ ImpostazioniBackup.impostaSoloInCarica(context, false)
 BackupWorker.backupOra(context)
 ```
 
-`StatoBackup` ha questi campi: `ultimoBackup`, `account`, `automatico`, `soloWifi`, `inCorso`, `errore`, `soloInCarica` e `serveAccesso`.
+`StatoBackup` ha questi campi: `ultimoBackup`, `account`, `automatico`, `soloWifi`, `inCorso`, `errore`, `soloInCarica`, `serveAccesso`, e per la versione libera `cartella` e `nomeCartella`.
 
 ---
 
-## 4. Da fare una volta in Google Cloud Console
+## 4. Versione libera: backup in una cartella
+
+La versione libera (flavor `libera`, per F-Droid) non ha Play services, quindi niente Drive. Il codice di Drive (`DriveBackup`, `DriveRest`, `AccessoDrive`) è in `src/completa`. Al suo posto c'è `BackupCartella`, in `src/libera`.
+
+- **Scelta della cartella**: la UI apre il selettore di sistema con `OpenDocumentTree` (Storage Access Framework). `BackupCartella.scegli` rende persistente il permesso di lettura e scrittura, così il worker ci scrive anche dopo un riavvio. In `StatoBackup` finiscono l'URI dell'albero (`cartella`) e il nome da mostrare (`nomeCartella`). Può essere una cartella del tablet, una scheda SD o la cartella di un'app che sincronizza da sola (Nextcloud, Syncthing…).
+- **Backup** (`BackupCartella.esegui`):
+  - scrive nella cartella un file `.tratto` completo, lo stesso di "Esporta backup" (`BackupLocale.esporta`), con il nome di `BackupLocale.nomeFile()`;
+  - se la scrittura fallisce, il file a metà viene cancellato;
+  - poi tiene solo gli **ultimi 5** backup di Tratto: i file il cui nome è `Tratto <data ora>.tratto`, anche con ` (1)` se il nome era già usato, ordinati per la data nel nome. Gli altri file della cartella non si toccano.
+- **In background**: stesso `BackupWorker` e stesse impostazioni. Tratto non usa la rete, quindi il lavoro non aspetta nessuna connessione e l'opzione "Solo con il Wi-Fi" non c'è. Restano "Backup automatico ogni giorno" e "Solo con il tablet in carica".
+- **Errori**: se il permesso sulla cartella è stato tolto o la cartella non c'è più (`CartellaNonRaggiungibile`), il lavoro non si ripete e la UI chiede di sceglierla di nuovo. Gli altri errori di scrittura si riprovano come quelli di rete su Drive.
+- **Ripristino**: non serve niente di nuovo, basta "Ripristina da file" e scegliere uno dei backup nella cartella.
+- **Scollega cartella** rilascia il permesso e spegne il backup automatico; i file già scritti restano dove sono.
+
+La versione libera non ha nemmeno il permesso `INTERNET`: sta nel manifest di `src/completa`, che serve a Drive e al download del modello di ML Kit.
+
+---
+
+## 5. Da fare una volta in Google Cloud Console
+
+Serve solo alla versione completa.
+
 
 Nel codice non c'è nessun client ID e non serve `google-services.json`. Play services riconosce l'app dalla coppia **package + SHA-1** del certificato di firma, quindi basta registrarla in un progetto Cloud.
 
@@ -257,7 +280,7 @@ Se qualcosa non va:
 
 ---
 
-## 5. Limiti noti
+## 6. Limiti noti
 
 - **Un solo tablet alla volta**.
   - Il backup su Drive è pensato per un dispositivo. Se due tablet caricano la stessa nota, vince l'ultimo che carica.

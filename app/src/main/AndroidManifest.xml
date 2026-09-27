@@ -2,8 +2,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- Backup su Google Drive -->
-    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Il permesso INTERNET e il provider di ML Kit sono in src/completa/AndroidManifest.xml:
+         la versione libera non usa la rete. -->
 
     <application
         android:name=".TrattoApp"
@@ -86,13 +86,7 @@
             <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/percorsi_condivisi" />
         </provider>
 
-        <!-- ML Kit non si inizializza a ogni avvio: lo fa Trascrittore al primo uso. -->
-        <provider
-            android:name="com.google.mlkit.common.internal.MlKitInitProvider"
-            android:authorities="${applicationId}.mlkitinitprovider"
-            tools:node="remove" />
-
-        <!-- WorkManager (backup su Drive e modelli di ML Kit) parte su richiesta: TrattoApp e' il suo Configuration.Provider. -->
+        <!-- WorkManager (backup automatico) parte su richiesta: TrattoApp e' il suo Configuration.Provider. -->
         <provider
             android:name="androidx.startup.InitializationProvider"
             android:authorities="${applicationId}.androidx-startup"
