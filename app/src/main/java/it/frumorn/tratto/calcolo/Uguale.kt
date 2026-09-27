@@ -23,7 +23,7 @@ internal class Uguale(val forme: List<Forma>) : Ingombro {
 
 /**
  * Riconoscimento geometrico del segno "=", senza ML Kit: si fa a ogni tratto, quindi deve
- * costare poco. Due trattini quasi orizzontali, lunghi uguali (entro il doppio), uno sopra
+ * costare poco. Due trattini quasi orizzontali, lunghi simili (entro due volte e mezza), uno sopra
  * l'altro e vicini; oppure un tratto solo a forma di zeta schiacciata (barra, diagonale
  * all'indietro, barra), come quando si scrive l'uguale senza staccare la penna.
  */
@@ -35,17 +35,22 @@ internal object RilevaUguale {
     private const val MINIMA = 5f
     private const val MASSIMA = 160f
 
+    /** Distanza massima tra le due barre: poco meno di un rigo del foglio a righe (38 unita'). */
+    private const val DISTANZA_MASSIMA = 34f
+
     fun dueTratti(a: Forma, b: Forma): Boolean {
         if (!a.orizzontale || !b.orizzontale) return false
         val wa = a.larghezza
         val wb = b.larghezza
         if (min(wa, wb) < MINIMA || max(wa, wb) > MASSIMA) return false
-        if (min(wa, wb) < 0.5f * max(wa, wb)) return false
+        if (min(wa, wb) < 0.4f * max(wa, wb)) return false
         if (sovrapposizioneX(a, b) < 0.5f * min(wa, wb)) return false
         val w = (wa + wb) / 2f
         val d = abs(a.cy - b.cy)
-        // Le barre non si toccano (anche se un po' inclinate) e restano vicine.
-        return d >= max(0.12f * w, 0.3f * (a.altezza + b.altezza)) && d <= 0.9f * w
+        // Le barre non si toccano (anche se un po' inclinate) e restano vicine. Scritte di corsa
+        // possono stare lontane quanto sono lunghe e anche di piu' (sul tablet 18 e 22 unita' con
+        // barre di 15 e 20): fino a una volta e mezza la larghezza, ma mai piu' di un rigo.
+        return d >= max(0.12f * w, 0.3f * (a.altezza + b.altezza)) && d <= min(1.5f * w, DISTANZA_MASSIMA)
     }
 
     fun unTratto(f: Forma): Boolean {

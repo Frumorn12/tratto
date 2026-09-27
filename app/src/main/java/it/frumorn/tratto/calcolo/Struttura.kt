@@ -246,12 +246,30 @@ internal object Struttura {
             val punti = forme.filter { it !== barra && it.piccolo(h) }
             if (barra != null && punti.size == 2 && punti.any { it.cy < barra.cy } && punti.any { it.cy > barra.cy }) return "/"
         }
+        // Piu': un trattino orizzontale e uno verticale che si incrociano verso il centro. ML Kit
+        // lo legge spesso come "1" o "t" quando l'asta verticale e' piu' lunga della barra.
+        if (forme.size == 2 && piu(forme[0], forme[1], h)) return "+"
         // Per: un puntino a meta' altezza (quello in basso e' la virgola dei decimali).
         if (forme.size == 1 && !asse.isNaN()) {
             val f = forme[0]
             if (maxOf(f.larghezza, f.altezza) <= 0.2f * h && abs(f.cy - asse) <= 0.2f * h) return "*"
         }
         return null
+    }
+
+    private fun piu(a: Forma, b: Forma, h: Float): Boolean {
+        val (barra, asta) = when {
+            a.orizzontale && !b.orizzontale -> a to b
+            b.orizzontale && !a.orizzontale -> b to a
+            else -> return false
+        }
+        if (asta.altezza < 0.25f * h || asta.larghezza > 0.45f * asta.altezza + 2f) return false
+        if (asta.altezza > 1.4f * h || barra.larghezza > 1.4f * h) return false
+        val rapporto = barra.larghezza / asta.altezza
+        if (rapporto < 0.4f || rapporto > 2.5f) return false
+        // L'incrocio cade nella parte centrale di tutti e due i tratti.
+        return asta.cx in barra.sx + 0.15f * barra.larghezza..barra.dx - 0.15f * barra.larghezza &&
+            barra.cy in asta.alto + 0.15f * asta.altezza..asta.basso - 0.15f * asta.altezza
     }
 
     // --- Esponenti -----------------------------------------------------------------------------

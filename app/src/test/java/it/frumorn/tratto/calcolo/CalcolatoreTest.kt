@@ -5,6 +5,7 @@ import it.frumorn.tratto.data.Tratto
 import it.frumorn.tratto.scrittura.Stile
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -57,7 +58,7 @@ class CalcolatoreTest {
             r!!
             assertEquals("19", r.valore)
             assertEquals("12+7", r.espressione)
-            assertEquals(listOf("12+7"), lettore.letti)
+            assertEquals(listOf("12", "7"), lettore.letti)
             // A destra dell'uguale, cifre alte come quelle scritte, sulla stessa linea di base.
             val destraUguale = uguale.maxOf { t -> t.xs().max() }
             assertTrue(r.tratti.isNotEmpty())
@@ -119,7 +120,7 @@ class CalcolatoreTest {
         val r = chiudi(q, uguale, lettore)!!
         assertEquals("2", r.valore)
         assertEquals("(1+2)/3+1", r.espressione)
-        assertEquals(listOf("1+2", "3", "+1"), lettore.letti)
+        assertEquals(listOf("1", "2", "3", "1"), lettore.letti)
     }
 
     @Test
@@ -211,7 +212,7 @@ class CalcolatoreTest {
         val r = chiudi(q, uguale, lettore)!!
         assertEquals("5", r.valore)
         assertEquals("√(16+9)", r.espressione)
-        assertEquals(listOf("16+9"), lettore.letti)
+        assertEquals(listOf("16", "9"), lettore.letti)
     }
 
     @Test
@@ -375,7 +376,7 @@ class CalcolatoreTest {
         val lettore = LettoreFinto(q)
         val r = chiudi(q, uguale, lettore)!!
         assertEquals("4", r.valore)
-        assertEquals(listOf("2+2"), lettore.letti)
+        assertEquals(listOf("2", "2"), lettore.letti)
     }
 
     @Test
@@ -390,7 +391,7 @@ class CalcolatoreTest {
         val uguale = q.uguale(x + 0.3f * h, q.asse(BASE))
         val lettore = LettoreFinto(q)
         assertEquals("4", chiudi(q, uguale, lettore)!!.valore)
-        assertEquals(listOf("2+2"), lettore.letti)
+        assertEquals(listOf("2", "2"), lettore.letti)
     }
 
     @Test
@@ -581,5 +582,45 @@ class CalcolatoreTest {
         // Cifre alte come le maiuscole: 1,5 altezze x nello stampatello, 2,3 nel corsivo (minuscole piccole).
         assertEquals(1.5f, Calcolatore.rapportoCifre(Stile.STAMPATELLO), 0.1f)
         assertEquals(2.33f, Calcolatore.rapportoCifre(Stile.CORSIVO), 0.1f)
+    }
+    @Test
+    fun piuConLAstaLunga() {
+        // Come sul tablet: l'asta del piu' e' piu' lunga della barra e ML Kit la leggerebbe "1".
+        val q = Quaderno()
+        val h = q.hCifre
+        val asse = q.asse(BASE)
+        var x = q.scrivi("6", 100f, BASE) + 0.3f * h
+        q.tratto(x + 0.35f * h, asse - 0.55f * h, x + 0.32f * h, asse + 0.5f * h, testo = "1")
+        q.tratto(x, asse + 0.02f * h, x + 0.7f * h, asse - 0.03f * h, testo = "1")
+        x = q.scrivi("5", x + h, BASE)
+        val lettore = LettoreFinto(q)
+        val r = chiudi(q, q.uguale(x + 0.3f * h, asse), lettore)
+        assertNotNull(r)
+        assertEquals("11", r!!.valore)
+        assertEquals(listOf("6", "5"), lettore.letti)
+    }
+
+    @Test
+    fun ugualeConLeBarreLontane() {
+        // Le due barre scritte di corsa, distanti piu' di quanto sono lunghe.
+        val q = Quaderno()
+        val h = q.hCifre
+        val asse = q.asse(BASE)
+        val fine = q.scrivi("6+5", 100f, BASE)
+        val x = fine + 0.3f * h
+        val w = 0.7f * h
+        val uguale = listOf(
+            q.trattoFuori(x, asse - 0.6f * w, x + w, asse - 0.6f * w - 1f),
+            q.trattoFuori(x + 2f, asse + 0.6f * w, x + 0.85f * w, asse + 0.6f * w),
+        )
+        assertEquals("11", chiudi(q, uguale)?.valore)
+    }
+
+    @Test
+    fun dueMenoSuRigheDiverseNonSonoUnUguale() {
+        // Due trattini a un rigo di distanza (38 unita') non fanno un uguale, anche se lunghi.
+        val a = Forma(Quaderno().trattoFuori(100f, 300f, 140f, 300f))
+        val b = Forma(Quaderno().trattoFuori(100f, 338f, 140f, 338f))
+        assertFalse(RilevaUguale.dueTratti(a, b))
     }
 }
