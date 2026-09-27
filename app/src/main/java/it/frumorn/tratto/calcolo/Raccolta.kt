@@ -80,6 +80,16 @@ internal object Raccoglitore {
         // unita' dopo cifre alte 35, staccate di 58): le si cerca in una fascia da cifra normale.
         val fascia = maxOf(h0, 30f)
         vicini(altri, u, fascia, 6f, 6f, 3f * fascia)?.let { return altezzaCifre(it).coerceIn(0.5f * h0, maxOf(2.5f * h0, 90f)) }
+        // Una riga fatta solo di frazioni: nessuna cifra attraversa l'asse, ma numeratore e
+        // denominatore sono cifre normali poco sopra e poco sotto.
+        altri
+            .filter { it.dx <= u.sx + 0.5f * u.larghezza && it.dx >= u.sx - 6f * fascia && it.basso >= u.asse - 2.2f * fascia && it.alto <= u.asse + 2.2f * fascia }
+            .filter { it.altezza >= 0.3f * it.larghezza && it.altezza >= 6f && it.altezza <= 3f * fascia && !it.parentesi }
+            .sortedByDescending { it.dx }
+            .take(6)
+            .ifEmpty { null }
+            // Cifre spezzate in piu' tratti (un 5 in due pezzi) abbasserebbero la stima: mai sotto h0.
+            ?.let { return altezzaCifre(it.map { f -> f.altezza }).coerceIn(h0, maxOf(2.5f * h0, 90f)) }
         return h0
     }
 
@@ -219,7 +229,10 @@ internal object Raccoglitore {
                 val c = iter.next()
                 val vicino = legati.any {
                     val passo = if (it === barra) Colonna.DALLA_BARRA else Colonna.TRA_TRATTI
-                    distanzaY(it, c) <= passo * h && sovrapposizioneX(it, c) > -0.3f * h
+                    (distanzaY(it, c) <= passo * h && sovrapposizioneX(it, c) > -0.3f * h) ||
+                        // Cifre affiancate sulla stessa riga del numeratore o del denominatore
+                        // ("20" sopra la barra: lo 0 stava a 18 unita' dal 2, piu' lontano dalla barra).
+                        (it !== barra && distanzaY(it, c) <= 0.1f * h && sovrapposizioneX(it, c) > -0.9f * h)
                 }
                 if (vicino) {
                     legati += c
@@ -238,6 +251,9 @@ internal object Raccoglitore {
      */
     private fun apice(c: Forma, scelti: Set<Forma>, apici: Set<Forma>, asse: Float, h: Float): Boolean {
         if (c.altezza > 0.85f * h || c.larghezza > 1.5f * h) return false
+        // Un altro tratto dello stesso simbolo di un esponente gia' preso (un 3 o un 5 scritti in
+        // due tratti): la parte alta puo' stare piu' in alto di quanto si accetta da sola.
+        if (apici.any { a -> sovrapposizioneX(a, c) > 0.3f * minOf(a.larghezza, c.larghezza) && distanzaY(a, c) <= 0.25f * h }) return true
         if (c.cy > asse - 0.2f * h || c.basso < asse - 0.9f * h) return false
         return scelti.any { s ->
             if (s in apici) {

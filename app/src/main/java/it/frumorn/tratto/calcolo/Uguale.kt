@@ -43,9 +43,9 @@ internal object RilevaUguale {
      * piccolo dopo cifre grandi puo' avere le barre lontane piu' di quanto sono lunghe.
      */
     fun dueTratti(a: Forma, b: Forma, hRiga: Float = 0f): Boolean {
+        // Ognuna e' un trattino quasi orizzontale; non serve che siano parallele: scritte di corsa
+        // una puo' salire e l'altra scendere (sul tablet -36 e +22 gradi).
         if (!barra(a) || !barra(b)) return false
-        // Le due barre vanno nello stesso verso, anche se tutte e due un po' storte.
-        if (abs(pendenza(a) - pendenza(b)) > 25f) return false
         val wa = a.larghezza
         val wb = b.larghezza
         if (min(wa, wb) < MINIMA || max(wa, wb) > MASSIMA) return false
@@ -76,14 +76,6 @@ internal object RilevaUguale {
         return corda >= 0.85f * w && f.lunghezza <= 1.25f * corda + 2f
     }
 
-    /** Inclinazione in gradi del segmento tra gli estremi, senza verso: da -90 a 90. */
-    private fun pendenza(f: Forma): Float {
-        val n = f.quanti
-        var dx = f.x(n - 1) - f.x(0)
-        var dy = f.y(n - 1) - f.y(0)
-        if (dx < 0f) { dx = -dx; dy = -dy }
-        return Math.toDegrees(kotlin.math.atan2(dy.toDouble(), dx.toDouble().coerceAtLeast(1e-3))).toFloat()
-    }
 
     fun unTratto(f: Forma): Boolean {
         val w = f.larghezza

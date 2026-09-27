@@ -84,9 +84,13 @@ internal object Struttura {
      * doppio delle cifre); con meno di due tratti, quella del livello sopra.
      */
     internal fun altezzaTipica(forme: List<Forma>, hPadre: Float): Float {
-        val alte = forme.filter { !it.piatto(hPadre) && it.altezza >= 0.3f * it.larghezza && !it.parentesi }.map { it.altezza }
+        val alte = forme.filter { !it.piatto(hPadre) && it.altezza >= 0.3f * it.larghezza && !it.parentesi }
         if (alte.size < 2) return hPadre
-        return altezzaCifre(alte).coerceIn(0.3f * hPadre, 1.6f * hPadre)
+        // Per simbolo, non per tratto: un 5 scritto in due pezzi da 18 e 19 e' alto 38, e le sue
+        // due meta' abbassavano la stima fino a non riconoscere piu' la frazione ("20/5").
+        val simboli = raggruppa(alte, hPadre).map { it.altezza }
+        val altezze = if (simboli.size >= 2) simboli else alte.map { it.altezza }
+        return altezzaCifre(altezze).coerceIn(0.3f * hPadre, 1.6f * hPadre)
     }
 
     /**
@@ -277,9 +281,15 @@ internal object Struttura {
     private fun apici(elementi: List<Elemento>, h: Float, profondita: Int): Riga {
         val voci = ArrayList<Voce>()
         var i = 0
+        // Altezza della cifra piu' alta del numero in corso (le cifre di fila prima della base):
+        // e' quella che un esponente non deve raggiungere.
+        var numero = 0f
         while (i < elementi.size) {
             val e = elementi[i++]
             val esponente = ArrayList<Elemento>()
+            val cifra = e is Gruppo && e.speciale == null && e.altezza >= 0.45f * h && e.altezza >= 0.3f * e.larghezza &&
+                e.forme.singleOrNull()?.parentesi != true
+            numero = if (cifra) maxOf(numero, e.altezza) else 0f
             if (e is Gruppo && e.speciale == null && e.altezza >= 0.45f * h && e.altezza >= 0.3f * e.larghezza) {
                 // Una parentesi sporge sopra e sotto le cifre (nel corsivo anche di meta'): si
                 // misura sulla sua parte centrale, e un esponente deve essere piu' piccolo delle
@@ -287,7 +297,9 @@ internal object Struttura {
                 val parentesi = e.forme.singleOrNull()?.parentesi == true
                 val alto = if (parentesi) e.alto + 0.1f * e.altezza else e.alto
                 val altezza = if (parentesi) 0.8f * e.altezza else e.altezza
-                val massima = 0.85f * (if (parentesi) minOf(altezza, h) else altezza)
+                // Rispetto al numero intero, non solo alla sua ultima cifra: in "20⁵" con lo 0
+                // piccolo (alto 25, il 2 alto 44) un 5 alto 26 e' ancora un esponente.
+                val massima = 0.85f * (if (parentesi) minOf(altezza, h) else maxOf(altezza, 0.8f * h, numero))
                 var ultimo: Ingombro = e
                 while (i < elementi.size) {
                     val c = elementi[i]
