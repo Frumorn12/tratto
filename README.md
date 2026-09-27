@@ -36,6 +36,7 @@ No accounts, no ads, no analytics. Your notes stay on the tablet, in plain files
 
 ### ⚡ A new note in an instant
 - **Double-click the pen button** and a new note opens right away, from anywhere in the app.
+- **Quick note**: a small sheet that floats over any app, from its Quick Settings tile or the accessibility shortcut. Write, close, and it is already saved in your library; left empty, it leaves nothing behind. Math works there too.
 - Quick Settings tile, a "New note" launcher shortcut and a dedicated home screen icon.
 - Cold start in about **0.4 seconds** on a Tab S6 Lite. Opening a note animates it out of its cover.
 
