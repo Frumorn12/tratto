@@ -3,6 +3,8 @@ package it.frumorn.tratto.calcolo
 import it.frumorn.tratto.data.FormatoPagina
 import it.frumorn.tratto.data.Tratto
 import org.junit.Assert.assertEquals
+import kotlinx.coroutines.runBlocking
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import java.io.File
@@ -158,5 +160,25 @@ class FoglioTestTest {
         val cinquanta = Lettura.Sequenza(schema.sequenze.first().gruppi.take(2), schema.sequenze.first().h)
         // La "o" diventa 0 dopo, con la lettura tollerante (Testo).
         assertEquals("5o", Lettura.coerenti(cinquanta, listOf("bo", "Bo", "Go")).first())
+    }
+
+    @Test
+    fun ugualeUncinatoSiRiconosce() {
+        // "69 + 20 =" con un uguale piccolissimo (barre di 7 e 12 unita'), la barra sopra con un
+        // uncino finale: non era un uguale, e il suggerimento leggeva le due barre come un 5.
+        val tutti = FormatoPagina.leggi(File("src/test/resources/calcolo/uguale-uncinato.tp"))
+        val pagina = ArrayList<Tratto>()
+        var adesso = 10_000L
+        var r: Raccolta? = null
+        for (t in tutti) {
+            pagina += t
+            adesso += 400
+            Calcolatore.trova(pagina, listOf(t), adesso)?.let { r = it }
+        }
+        assertEquals(6, r?.forme?.size)
+        // E il suggerimento, se l'uguale non l'avesse visto nessuno, propone solo il risultato.
+        val s = runBlocking { Calcolatore.suggerisci(pagina, pagina.last(), Lettore { _, _, _ -> listOf("69+20") }) }
+        assertTrue(s!!.conUguale)
+        assertEquals("89", s.valore)
     }
 }

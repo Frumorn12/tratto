@@ -70,10 +70,42 @@ internal object RilevaUguale {
     fun barra(f: Forma): Boolean {
         if (f.orizzontale) return true
         val w = f.larghezza
-        if (w < MINIMA || f.altezza > 0.6f * w + 1.5f) return false
+        if (w < MINIMA || f.altezza > 0.8f * w + 2f) return false
+        // Si guarda la parte centrale del percorso, senza il primo e l'ultimo 15%: una lineetta
+        // piccola scritta di corsa ha spesso un uncino dove la penna si stacca (sul tablet: 12
+        // unita' di larghezza con 18 di percorso). Dritta e inclinata al massimo di 35 gradi.
         val n = f.quanti
-        val corda = hypot(f.x(n - 1) - f.x(0), f.y(n - 1) - f.y(0))
-        return corda >= 0.85f * w && f.lunghezza <= 1.25f * corda + 2f
+        if (n < 2) return false
+        var totale = 0f
+        for (i in 1 until n) totale += hypot(f.x(i) - f.x(i - 1), f.y(i) - f.y(i - 1))
+        var percorso = 0f
+        var a = 0
+        var b = n - 1
+        for (i in 1 until n) {
+            percorso += hypot(f.x(i) - f.x(i - 1), f.y(i) - f.y(i - 1))
+            if (a == 0 && percorso >= 0.15f * totale) a = i - 1
+            if (percorso <= 0.85f * totale) b = i
+        }
+        if (b <= a) return false
+        var centro = 0f
+        for (i in a + 1..b) centro += hypot(f.x(i) - f.x(i - 1), f.y(i) - f.y(i - 1))
+        val dx = abs(f.x(b) - f.x(a))
+        val dy = abs(f.y(b) - f.y(a))
+        return dx >= 0.5f * w && dy <= 0.7f * dx + 1f && centro <= 1.3f * hypot(dx, dy) + 2f
+    }
+
+    /**
+     * Due trattini piccoli uno sopra l'altro che la sola forma non basta a dire uguale (storti,
+     * con uncini, uno piu' corto): candidati da far leggere a ML Kit. [hRiga] e' l'altezza delle
+     * cifre vicine.
+     */
+    fun forseUguale(a: Forma, b: Forma, hRiga: Float): Boolean {
+        val h = maxOf(hRiga, 12f)
+        fun piccolo(f: Forma) = maxOf(f.larghezza, f.altezza) in 3f..1.2f * h && f.altezza <= 1.2f * f.larghezza + 3f
+        if (!piccolo(a) || !piccolo(b)) return false
+        val d = abs(a.cy - b.cy)
+        return abs(a.cx - b.cx) <= 0.8f * max(a.larghezza, b.larghezza) + 3f && d >= 2f && d <= 0.9f * h &&
+            distanzaY(a, b) >= 0f
     }
 
 

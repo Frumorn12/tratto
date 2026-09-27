@@ -83,7 +83,9 @@ object Calcolatore {
      */
     suspend fun dopoTratto(context: Context, tratti: List<Tratto>, nuovi: List<Tratto>, stile: Stile, idNuovo: () -> Long): Risultato? {
         traccia { "dopoTratto: ${nuovi.size} nuovi su ${tratti.size}" }
-        val raccolta = trova(tratti, nuovi, orologio()) ?: return null.also { traccia { "nessun uguale" } }
+        val raccolta = trova(tratti, nuovi, orologio())
+            ?: confermaConMlKit(context, tratti, nuovi)
+            ?: return null.also { traccia { "nessun uguale" } }
         val riga = Struttura.analizza(raccolta.forme, raccolta.h)
         traccia { "uguale trovato: ${raccolta.forme.size} tratti, schema ${Lettura.schema(riga).parti.joinToString("") { if (it is Lettura.Fissa) it.testo else "□" }}" }
         if (Lettura.banale(riga)) return null
@@ -123,7 +125,15 @@ object Calcolatore {
         if (pagina.any { risultato(it.tratto) && it.sx > f.sx && it.alto <= f.basso + 0.5f * h0 && it.basso >= f.alto - 0.5f * h0 }) return null
         // Se l'ultimo tratto chiude un uguale (non riconosciuto come formula), si parte da quello;
         // se no da un uguale immaginario subito a destra dell'ultimo tratto, sul suo asse.
-        val partner = if (RilevaUguale.barra(f)) pagina.lastOrNull { it.id != f.id && RilevaUguale.dueTratti(it, f, h0) } else null
+        // L'uguale e' l'ultimo tratto con quello scritto subito prima: due barre, o due trattini
+        // piccoli uno sopra l'altro (se no quelle due lineette si leggerebbero come un 5).
+        val iUltimo = tratti.indexOfFirst { it.id == ultimo.id }
+        val prima = tratti.getOrNull(iUltimo - 1)?.let { t -> pagina.firstOrNull { it.id == t.id } }
+        val hVicine = pagina.filter { it.id != f.id && it.id != prima?.id && it.dx >= f.sx - 150f && it.sx <= f.dx && abs(it.cy - f.cy) <= 60f && !it.piatto(12f) }
+            .maxOfOrNull { it.altezza } ?: h0
+        val partner = prima?.takeIf {
+            (RilevaUguale.barra(f) && RilevaUguale.dueTratti(it, f, hVicine)) || RilevaUguale.forseUguale(it, f, hVicine)
+        }
         val u = if (partner != null) Uguale(listOf(partner, f)) else {
             // L'asse della riga dai simboli vicini all'ultimo tratto, non dal tratto stesso: la
             // barretta in alto di un 7 o un esponente lo sposterebbero.
@@ -162,6 +172,23 @@ object Calcolatore {
     /** Diagnostica nel logcat (tag TrattoCalcolo); non fa niente sulla JVM dei test. */
     private inline fun traccia(messaggio: () -> String) {
         runCatching { android.util.Log.d("TrattoCalcolo", messaggio()) }
+    }
+
+    /**
+     * Due trattini che per la forma potrebbero essere un uguale scritto male: li si fa leggere a
+     * ML Kit, e se tra le prime letture c'e' "=" lo sono.
+     */
+    private suspend fun confermaConMlKit(context: Context, tratti: List<Tratto>, nuovi: List<Tratto>): Raccolta? {
+        val ultimo = nuovi.lastOrNull() ?: return null
+        val (a, b) = prendiIncerto(ultimo) ?: return null
+        if (!Trascrittore.modelloPronto(context)) return null
+        val fa = Forma(a)
+        val fb = Forma(b)
+        val h = maxOf(fa.altezza, fb.altezza, fa.larghezza, fb.larghezza) * 2f
+        val letti = Trascrittore.candidati(context, listOf(a, b), "", h)
+        traccia { "uguale incerto letto: ${letti.take(3)}" }
+        if (letti.take(3).none { it.trim() == "=" }) return null
+        return completa(tratti, nuovi, ultimo, Uguale(listOf(fa, fb)))
     }
 
     /** Come [dopoTratto], con il lettore e l'ora dati: per i test sulla JVM. */
@@ -212,12 +239,41 @@ object Calcolatore {
                 )
                 if (!RilevaUguale.dueTratti(f1, f2, hRiga)) return null.also {
                     traccia { "due barre scartate: w1=${f1.larghezza} w2=${f2.larghezza} h1=${f1.altezza} h2=${f2.altezza} dy=${f1.cy - f2.cy} or1=${f1.orizzontale}" }
+                    if (RilevaUguale.forseUguale(f1, f2, hRiga)) segnaIncerto(t1, ultimo)
                 }
                 Uguale(listOf(f1, f2))
             }
             RilevaUguale.unTratto(f2) -> Uguale(listOf(f2))
-            else -> return null
+            else -> {
+                // Anche l'ultimo tratto non sembra una barra: se con il precedente fa una coppia
+                // di trattini piccoli, lo decidera' ML Kit.
+                val t1 = precedente?.let { id -> tratti.firstOrNull { it.id == id } ?: nuovi.firstOrNull { it.id == id } }
+                if (t1 != null && t1.penna != Penna.EVIDENZIATORE) {
+                    val f1 = Forma(t1)
+                    val hRiga = Raccoglitore.stimaAltezza(
+                        tratti.filter { it.id != t1.id && it.id != ultimo.id && it.penna != Penna.EVIDENZIATORE && it.quanti > 0 }.map { Forma(it) },
+                        Uguale(listOf(f1, f2)),
+                    )
+                    if (RilevaUguale.forseUguale(f1, f2, hRiga)) segnaIncerto(t1, ultimo)
+                }
+                return null
+            }
         }
+        return completa(tratti, nuovi, ultimo, uguale)
+    }
+
+    /** L'ultima coppia di trattini che la forma non ha saputo dire uguale: la puo' confermare ML Kit. */
+    private var incerto: Pair<Tratto, Tratto>? = null
+
+    private fun segnaIncerto(a: Tratto, b: Tratto) = synchronized(this) { incerto = a to b }
+
+    /** La coppia incerta finita con [ultimo], se c'e' (e la si dimentica). */
+    internal fun prendiIncerto(ultimo: Tratto): Pair<Tratto, Tratto>? = synchronized(this) {
+        incerto.also { incerto = null }?.takeIf { it.second.id == ultimo.id }
+    }
+
+    /** Dall'uguale trovato alla formula alla sua sinistra. */
+    internal fun completa(tratti: List<Tratto>, nuovi: List<Tratto>, ultimo: Tratto, uguale: Uguale): Raccolta? {
         val pagina = (tratti + nuovi).distinctBy { it.id }.filter { it.penna != Penna.EVIDENZIATORE && it.quanti > 0 }.map { Forma(it) }
         if (!RilevaUguale.libero(uguale, pagina)) return null.also { traccia { "uguale non libero" } }
         synchronized(this) {
