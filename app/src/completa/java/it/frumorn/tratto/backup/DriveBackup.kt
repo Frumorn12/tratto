@@ -160,6 +160,9 @@ class DriveBackup(context: Context) {
         return r.accessToken ?: throw AccessoNecessario()
     }
 
+    /** Client col token dell'account collegato, anche per il collegamento a Google Docs. */
+    internal suspend fun rest(): DriveRest = connetti()
+
     private suspend fun connetti(): DriveRest = DriveRest(tokenSilenzioso()) { scaduto ->
         try {
             client.clearToken(ClearTokenRequest.builder().setToken(scaduto).build()).attendi()
