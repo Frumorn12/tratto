@@ -18,8 +18,11 @@ import java.util.UUID
 import kotlin.math.min
 import kotlin.random.Random
 
-/** Risposta di errore di Drive, con un messaggio in italiano pronto da mostrare. */
-internal class ErroreDrive(val codice: Int, val motivo: String?, messaggio: String) : IOException(messaggio) {
+/**
+ * Risposta di errore di Drive (o di Docs, che usa lo stesso client), con un messaggio in italiano
+ * pronto da mostrare. [dettaglio] e' il messaggio originale di Google, per riconoscere i casi particolari.
+ */
+internal class ErroreDrive(val codice: Int, val motivo: String?, messaggio: String, val dettaglio: String? = null) : IOException(messaggio) {
     val temporaneo: Boolean
         get() = codice == 408 || codice == 429 || codice >= 500 ||
             (codice == 403 && motivo in setOf("rateLimitExceeded", "userRateLimitExceeded"))
@@ -48,6 +51,7 @@ internal fun Throwable.temporaneo(): Boolean = when (this) {
  * Le chiamate girano su Dispatchers.IO. Su 401 chiede una volta un token nuovo a [rinnova];
  * sugli errori temporanei riprova con attese crescenti (le richieste non idempotenti solo se Drive
  * ha risposto con un errore, non se e' caduta la rete).
+ * Lo usa anche il collegamento a Google Docs, per le sue chiamate a docs.googleapis.com ([richiesta]).
  */
 internal class DriveRest(private var token: String, private val rinnova: suspend (scaduto: String) -> String) {
 
@@ -79,10 +83,46 @@ internal class DriveRest(private var token: String, private val rinnova: suspend
         return out
     }
 
-    suspend fun creaCartella(nome: String, proprieta: JSONObject): String {
+    /** Crea una cartella: nella radice di Drive o, con [genitore], dentro un'altra. */
+    suspend fun creaCartella(nome: String, proprieta: JSONObject, genitore: String? = null): String {
         val corpo = JSONObject().put("name", nome).put("mimeType", MIME_CARTELLA).put("appProperties", proprieta)
-        return json("POST", "$API/files?fields=id", corpo).getString("id")
+        if (genitore != null) corpo.put("parents", JSONArray().put(genitore))
+        return crea(corpo)
     }
+
+    /** Crea un file senza contenuto (per esempio un documento Google vuoto) e ne restituisce l'id. */
+    suspend fun crea(metadati: JSONObject): String = json("POST", "$API/files?fields=id", metadati).getString("id")
+
+    /** Chiunque abbia il link puo' leggere il file. Restituisce l'id del permesso, da togliere con [togliPermesso]. */
+    suspend fun condividiConChiunque(id: String): String {
+        val corpo = JSONObject().put("role", "reader").put("type", "anyone")
+        // Ripeterla non fa danni: il permesso "anyone" di un file e' uno solo.
+        return json("POST", "$API/files/$id/permissions?fields=id", corpo, idempotente = true).getString("id")
+    }
+
+    suspend fun togliPermesso(id: String, permesso: String) {
+        try {
+            json("DELETE", "$API/files/$id/permissions/$permesso")
+        } catch (e: ErroreDrive) {
+            if (e.codice != 404) throw e
+        }
+    }
+
+    /** Cancella il file per sempre, senza passare dal cestino. */
+    suspend fun elimina(id: String) {
+        try {
+            json("DELETE", "$API/files/$id")
+        } catch (e: ErroreDrive) {
+            if (e.codice != 404) throw e
+        }
+    }
+
+    /**
+     * Richiesta JSON a un'altra API Google con lo stesso token e gli stessi tentativi (Google Docs).
+     * Dopo una caduta della rete una POST si ripete solo se [idempotente].
+     */
+    suspend fun richiesta(metodo: String, url: String, corpo: JSONObject? = null, idempotente: Boolean = metodo != "POST"): JSONObject =
+        json(metodo, url, corpo, idempotente)
 
     suspend fun aggiornaMetadati(id: String, metadati: JSONObject) {
         json("PATCH", "$API/files/$id?fields=id", metadati)
@@ -267,8 +307,8 @@ internal class DriveRest(private var token: String, private val rinnova: suspend
 
     // ---------------------------------------------------------------- HTTP
 
-    private suspend fun json(metodo: String, url: String, corpo: JSONObject? = null): JSONObject =
-        chiama(idempotente = metodo != "POST") { t ->
+    private suspend fun json(metodo: String, url: String, corpo: JSONObject? = null, idempotente: Boolean = metodo != "POST"): JSONObject =
+        chiama(idempotente) { t ->
             val c = apri(url, metodo, t)
             try {
                 if (corpo != null) {
@@ -334,19 +374,22 @@ internal class DriveRest(private var token: String, private val rinnova: suspend
     private fun errore(c: HttpURLConnection, codice: Int): ErroreDrive {
         val corpo = try { c.errorStream?.let { testo(it) } ?: "" } catch (_: IOException) { "" }
         val err = try { JSONObject(corpo).optJSONObject("error") } catch (_: Exception) { null }
-        val motivo = err?.elenco("errors")?.firstOrNull()?.testo("reason")
+        // Le API v1 come Docs non hanno "errors", solo lo stato (INVALID_ARGUMENT, RESOURCE_EXHAUSTED...).
+        val motivo = err?.elenco("errors")?.firstOrNull()?.testo("reason") ?: err?.testo("status")
         val dettaglio = err?.testo("message")
+        val docs = c.url.host == HOST_DOCS
+        val servizio = if (docs) "Google Docs" else "Google Drive"
         val messaggio = when {
             motivo == "storageQuotaExceeded" -> "Lo spazio su Google Drive è esaurito."
             motivo == "accessNotConfigured" || "SERVICE_DISABLED" in corpo ->
-                "L'API di Google Drive non è abilitata nel progetto Google Cloud di Tratto."
-            codice == 401 -> "L'accesso a Google Drive è scaduto."
-            codice == 403 -> "Google Drive ha rifiutato l'operazione" + (dettaglio?.let { ": $it" } ?: ".")
-            codice == 404 -> "File non trovato su Google Drive."
-            codice >= 500 -> "Google Drive non risponde (errore $codice)."
-            else -> "Errore di Google Drive ($codice)" + (dettaglio?.let { ": $it" } ?: ".")
+                "L'API di $servizio non è abilitata nel progetto Google Cloud di Tratto."
+            codice == 401 -> "L'accesso a $servizio è scaduto."
+            codice == 403 -> "$servizio ha rifiutato l'operazione" + (dettaglio?.let { ": $it" } ?: ".")
+            codice == 404 -> if (docs) "Documento non trovato su Google Docs." else "File non trovato su Google Drive."
+            codice >= 500 -> "$servizio non risponde (errore $codice)."
+            else -> "Errore di $servizio ($codice)" + (dettaglio?.let { ": $it" } ?: ".")
         }
-        return ErroreDrive(codice, motivo, messaggio)
+        return ErroreDrive(codice, motivo, messaggio, dettaglio)
     }
 
     private fun testo(input: InputStream): String = input.use { it.readBytes().toString(Charsets.UTF_8) }
@@ -360,6 +403,7 @@ internal class DriveRest(private var token: String, private val rinnova: suspend
 
     companion object {
         const val MIME_CARTELLA = "application/vnd.google-apps.folder"
+        private const val HOST_DOCS = "docs.googleapis.com"
         private const val API = "https://www.googleapis.com/drive/v3"
         private const val UPLOAD = "https://www.googleapis.com/upload/drive/v3"
         private const val LIMITE_MULTIPART = 5L shl 20
