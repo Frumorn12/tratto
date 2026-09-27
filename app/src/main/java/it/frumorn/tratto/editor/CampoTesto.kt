@@ -358,13 +358,17 @@ class CampoTesto(context: Context) : EditText(context) {
                 keyCode == KeyEvent.KEYCODE_BACKSLASH -> { pulisci(); return true }
                 keyCode == KeyEvent.KEYCODE_7 && event.isShiftPressed -> { elenco(Elenco.NUMERATO); return true }
                 keyCode == KeyEvent.KEYCODE_8 && event.isShiftPressed -> { elenco(Elenco.PUNTATO); return true }
-                keyCode == KeyEvent.KEYCODE_X && event.isShiftPressed && event.isAltPressed -> { barrato(); return true }
             }
         }
         return super.onKeyShortcut(keyCode, event)
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
+        // Alt+Maiusc+5: barrato, come in Documenti (senza Ctrl non passa da onKeyShortcut).
+        if (keyCode == KeyEvent.KEYCODE_5 && event.isAltPressed && event.isShiftPressed) {
+            barrato()
+            return true
+        }
         // Tab e Maiusc+Tab su un elenco cambiano il rientro, come in Documenti.
         if (keyCode == KeyEvent.KEYCODE_TAB && !event.isCtrlPressed) {
             val f = modello().formato(selectionStart, selectionEnd)
