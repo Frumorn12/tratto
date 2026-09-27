@@ -46,6 +46,10 @@ No accounts, no ads, no analytics. Your notes stay on the tablet, in plain files
 ### 🧮 Handwritten math
 Write an expression followed by `=` and Tratto writes the result next to it, as pen strokes you can edit. It understands `+ − × ÷`, fractions, powers, roots, parentheses, percentages and π.
 
+<p align="center">
+  <img src="docs/immagini/matematica.png" alt="Handwritten expressions with their results written after the equals sign" width="70%">
+</p>
+
 ### 🔤 Transcription and neat copy
 Lasso a sentence to **transcribe** it into text you can copy or share. Or make a **neat copy**: the sentence is rewritten in place in cursive or print, using the single-stroke [Hershey fonts](https://en.wikipedia.org/wiki/Hershey_fonts). Recognition runs entirely on the tablet with [ML Kit Digital Ink](https://developers.google.com/ml-kit/vision/digital-ink-recognition); the network is only needed once, to download the language model.
 

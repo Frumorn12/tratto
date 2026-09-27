@@ -9,3 +9,4 @@ build/
 docs/research/img/
 .claude/
 docs/research/privato/
+__pycache__/
