@@ -311,6 +311,12 @@ internal object Struttura {
                     i++
                 }
             }
+            // Un esponente fatto solo di trattini non esiste: e' un meno scritto un po' alto (in
+            // "50 - (2-0)²" il meno stava nella parte alta dello 0 e diventava 50 alla meno).
+            if (esponente.isNotEmpty() && esponente.all { it is Gruppo && it.speciale == null && it.altezza < 0.3f * h }) {
+                i -= esponente.size
+                esponente.clear()
+            }
             val riga = if (esponente.isEmpty()) null
             else analizza(esponente.flatMap { it.forme }, 0.6f * h, minOf(profondita + 1, PROFONDITA_MAX))
             voci += Voce(e, riga)

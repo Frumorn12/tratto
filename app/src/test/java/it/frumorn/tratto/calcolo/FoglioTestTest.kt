@@ -117,4 +117,46 @@ class FoglioTestTest {
         }
         assertEquals(listOf("0^(1+2 3 4)", "7^(8 9 10)"), trovate)
     }
+
+    @Test
+    fun menoScrittoAltoNonEUnEsponente() {
+        // "50 - (2-0)² =": il meno nella parte alta dello 0 diventava un esponente del 50.
+        val tutti = FormatoPagina.leggi(File("src/test/resources/calcolo/meno-alto.tp"))
+        val indice = tutti.withIndex().associate { (i, t) -> t.id to i }
+        val pagina = ArrayList<Tratto>()
+        var adesso = 10_000L
+        var trovata: String? = null
+        for (t in tutti) {
+            pagina += t
+            adesso += 400
+            val r = Calcolatore.trova(pagina, listOf(t), adesso) ?: continue
+            val schema = Lettura.schema(Struttura.analizza(r.forme, r.h))
+            trovata = schema.parti.joinToString("") { p ->
+                when (p) {
+                    is Lettura.Fissa -> p.testo
+                    is Lettura.Buco -> schema.sequenze[p.sequenza].gruppi.joinToString(" ") { g -> g.forme.mapNotNull { indice[it.id] }.sorted().joinToString("+") }
+                }
+            }
+        }
+        assertEquals("0+1 2 3 4 5 6 7 8^(9)", trovata)
+    }
+
+    @Test
+    fun cinqueInDueTrattiNonEUnaB() {
+        // ML Kit aveva letto il 50 (il 5 in due tratti) come "bo": sarebbe diventato 60.
+        val tutti = FormatoPagina.leggi(File("src/test/resources/calcolo/meno-alto.tp"))
+        val pagina = ArrayList<Tratto>()
+        var adesso = 10_000L
+        var r: Raccolta? = null
+        for (t in tutti) {
+            pagina += t
+            adesso += 400
+            Calcolatore.trova(pagina, listOf(t), adesso)?.let { r = it }
+        }
+        val schema = Lettura.schema(Struttura.analizza(r!!.forme, r!!.h))
+        // La prima sequenza e' "50-(2-0)" (9 simboli); si prova solo il pezzo "50" con un'altra riga.
+        val cinquanta = Lettura.Sequenza(schema.sequenze.first().gruppi.take(2), schema.sequenze.first().h)
+        // La "o" diventa 0 dopo, con la lettura tollerante (Testo).
+        assertEquals("5o", Lettura.coerenti(cinquanta, listOf("bo", "Bo", "Go")).first())
+    }
 }

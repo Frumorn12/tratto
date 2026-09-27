@@ -149,7 +149,19 @@ internal object Lettura {
      * letto "4" in una delle due letture migliori. Si guarda solo quando c'e' un carattere per
      * simbolo, e non si scarta niente: cambia solo l'ordine.
      */
-    internal fun coerenti(s: Sequenza, candidati: List<String>): List<String> {
+    internal fun coerenti(s: Sequenza, letture: List<String>): List<String> {
+        // Un 5 scritto in due tratti (la barretta a parte) ML Kit lo legge "b" o "G", che la
+        // lettura tollerante farebbe 6: un 6 o una b si scrivono in un tratto solo. Si aggiunge
+        // la lettura con il 5, subito prima di quella originale ("bo" per il 50 di "50-(2-0)²").
+        val candidati = letture.flatMap { c ->
+            val compatto = c.filterNot { it.isWhitespace() }
+            if (compatto.length != s.gruppi.size) return@flatMap listOf(c)
+            val corretto = String(CharArray(compatto.length) { i ->
+                val ch = compatto[i]
+                if (ch in "b6G" && s.gruppi[i].forme.size >= 2) '5' else ch
+            })
+            if (corretto == compatto) listOf(c) else listOf(corretto, c)
+        }.distinct()
         if (candidati.size < 2) return candidati
         fun penalita(c: String): Int {
             val compatto = c.filterNot { it.isWhitespace() }
