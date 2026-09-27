@@ -131,6 +131,8 @@ Tratto/                         cartella, appProperties {"tratto":"cartella"}
 
 Il nome del file è il titolo della nota, oppure l'id se il titolo è vuoto. Più note possono avere lo stesso nome: Tratto le distingue da `notaId`.
 
+Nella stessa cartella ci sono anche i documenti delle note collegate a Google Docs (`appProperties {"tratto":"docs"}`) e la sottocartella `.immagini-docs` delle loro immagini temporanee: non hanno `notaId` e il backup li ignora. Vedi [google-docs.md](google-docs.md).
+
 ### Backup (`DriveBackup.sincronizza`)
 
 1. Il token si ottiene senza interfaccia con `AuthorizationClient.authorize()`.
@@ -228,7 +230,7 @@ Serve solo alla versione completa.
 Nel codice non c'è nessun client ID e non serve `google-services.json`. Play services riconosce l'app dalla coppia **package + SHA-1** del certificato di firma, quindi basta registrarla in un progetto Cloud.
 
 1. Vai su <https://console.cloud.google.com/>, crea un progetto nuovo e chiamalo **Tratto**.
-2. **API e servizi → Libreria**: cerca **Google Drive API** e premi **Abilita**.
+2. **API e servizi → Libreria**: cerca **Google Drive API** e premi **Abilita**. Per il collegamento delle note a Google Docs ([google-docs.md](google-docs.md)) abilita anche **Google Docs API**; lo scope resta `drive.file`.
 3. **Google Auth Platform → Branding** (se è la prima volta: "Inizia"):
    - nome dell'app: `Tratto`;
    - email di assistenza utenti: la tua;
@@ -276,6 +278,7 @@ Se qualcosa non va:
 |---|---|
 | "Accesso a Google non configurato per questa app…" (DEVELOPER_ERROR, codice 10) | Package o SHA-1 non registrati, oppure registrati da pochi minuti. Controlla il client Android del punto 6. |
 | "L'API di Google Drive non è abilitata…" | Manca il punto 2. |
+| "L'API di Google Docs non è abilitata…" (collegando una nota a Google Docs) | Manca la Google Docs API del punto 2. |
 | Il consenso scade dopo una settimana | L'app è ancora in stato "Test" (punto 4). |
 
 ---

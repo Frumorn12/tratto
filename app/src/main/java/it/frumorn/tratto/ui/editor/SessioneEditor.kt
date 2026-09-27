@@ -13,6 +13,7 @@ import it.frumorn.tratto.editor.EditorView
 import it.frumorn.tratto.editor.StatoStrumenti
 import it.frumorn.tratto.editor.FoglioView
 import it.frumorn.tratto.data.Penna
+import it.frumorn.tratto.googledocs.GoogleDocs
 import it.frumorn.tratto.scrittura.BellaScrittura
 import it.frumorn.tratto.scrittura.Stile
 import it.frumorn.tratto.scrittura.Trascrittore
@@ -193,6 +194,7 @@ class SessioneEditor(private val stato: StatoApp, val id: String, context: Conte
     fun rinomina(nuovo: String) {
         titolo = nuovo
         stato.rinomina(id, nuovo.trim())
+        GoogleDocs.modificata(contesto, id)
     }
 
     /** Pannello della trascrizione: null se chiuso. */
@@ -312,6 +314,8 @@ class SessioneEditor(private val stato: StatoApp, val id: String, context: Conte
         salvataggio = stato.scope.launch {
             delay(1000)
             withContext(Dispatchers.IO) { documento?.salva() }
+            // Se la nota e' collegata a Google Docs, il documento si aggiorna qualche secondo dopo.
+            GoogleDocs.modificata(contesto, id)
         }
     }
 
@@ -328,6 +332,7 @@ class SessioneEditor(private val stato: StatoApp, val id: String, context: Conte
                 if (d != null) {
                     val cambiata = d.modificato
                     d.salva()
+                    GoogleDocs.finisciInBackground(contesto, id, cambiata)
                     val copertinaMancante = !stato.archivio.fileAnteprima(id).exists()
                     if (cambiata || copertinaMancante) runCatching { Anteprima.crea(stato.archivio, d, p) }
                 }
@@ -357,6 +362,10 @@ class SessioneEditor(private val stato: StatoApp, val id: String, context: Conte
     fun salvaOra() {
         salvataggio?.cancel()
         val d = documento ?: return
-        stato.scope.launch(Dispatchers.IO) { d.salva() }
+        stato.scope.launch(Dispatchers.IO) {
+            val cambiata = d.modificato
+            d.salva()
+            GoogleDocs.finisciInBackground(contesto, id, cambiata)
+        }
     }
 }

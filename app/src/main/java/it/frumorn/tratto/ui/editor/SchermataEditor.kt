@@ -260,6 +260,8 @@ private fun BarraSuperiore(stato: StatoApp, s: SessioneEditor, modifier: Modifie
         androidx.activity.result.contract.ActivityResultContracts.CreateDocument("application/pdf"),
     ) { uri -> if (uri != null) esporta { info -> it.frumorn.tratto.ui.esporta.Esporta.salvaPdf(context, stato.archivio, info, uri) } }
     var titolo by remember(s.titolo) { mutableStateOf(s.titolo) }
+    // Collegamento a Google Docs (solo versione completa): pallino accanto al titolo e voci del menu.
+    val docs = rememberGoogleDocs(s)
     Surface(color = MaterialTheme.colorScheme.surface, modifier = modifier.fillMaxWidth()) {
         Column {
             Row(
@@ -281,6 +283,7 @@ private fun BarraSuperiore(stato: StatoApp, s: SessioneEditor, modifier: Modifie
                         modifier = Modifier.fillMaxWidth(),
                     )
                 }
+                ChipGoogleDocs(docs)
                 BottoneIcona(R.drawable.ic_undo, "Annulla", attivo = s.puoAnnullare) { s.annulla() }
                 BottoneIcona(R.drawable.ic_redo, "Ripeti", attivo = s.puoRipetere) { s.ripeti() }
                 VerticalDivider(Modifier.height(28.dp).padding(horizontal = 6.dp), color = MaterialTheme.colorScheme.outlineVariant)
@@ -311,6 +314,7 @@ private fun BarraSuperiore(stato: StatoApp, s: SessioneEditor, modifier: Modifie
                                 val numero = s.pagina + 1
                                 esporta { info -> s.paginaCorrente()?.let { p -> it.frumorn.tratto.ui.esporta.Esporta.condividiPagina(context, stato.archivio, info, p, numero) } }
                             })
+                        VociGoogleDocs(docs) { menu = false }
                         HorizontalDivider()
                         DropdownMenuItem(text = { Text("Elimina questa pagina") }, enabled = s.pagine > 1,
                             leadingIcon = { Icona(R.drawable.ic_delete, null) }, onClick = { s.eliminaPagina(); menu = false })
