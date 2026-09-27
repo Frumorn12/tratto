@@ -39,8 +39,12 @@ internal object Raccoglitore {
         }
         if (occupato) return null.also { Calcolatore.tracciaPubblica { "raccolta: occupato a destra" } }
 
-        val scelti = LinkedHashSet(cammina(tutti, u, h))
-        Calcolatore.tracciaPubblica { "raccolta: asse=$asse h=$h sull'asse=${scelti.size} " + tutti.joinToString { "[${it.sx.toInt()}-${it.dx.toInt()} ${it.alto.toInt()}-${it.basso.toInt()}]" } }
+        // Le frazioni si cercano prima e a parte: la barra sta vicino all'asse, ma numeratore e
+        // denominatore possono stare fuori dalla fascia (o sfiorarla appena) e la barra stessa,
+        // in una frazione scritta un po' alta o bassa, puo' mancare la fascia.
+        val blocchi = blocchiFrazione(altri, u, h)
+        val scelti = LinkedHashSet(cammina(tutti, u, h, blocchi))
+        Calcolatore.tracciaPubblica { "raccolta: asse=$asse h=$h sull'asse=${scelti.size} frazioni=${blocchi.size} " + tutti.joinToString { "[${it.sx.toInt()}-${it.dx.toInt()} ${it.alto.toInt()}-${it.basso.toInt()}]" } }
         if (scelti.isEmpty()) return null
         val apici = HashSet<Forma>()
         var cambiato = true
@@ -83,22 +87,28 @@ internal object Raccoglitore {
      * I tratti sull'asse, da destra verso sinistra fino al primo vuoto largo, al primo risultato
      * scritto da noi o al primo uguale.
      */
-    private fun cammina(tutti: List<Forma>, u: Uguale, h: Float): List<Forma> {
+    private fun cammina(tutti: List<Forma>, u: Uguale, h: Float, blocchi: List<Set<Forma>>): List<Forma> {
         // Oltre ai tratti sull'asse si guardano anche quelli appena sopra o sotto (esponenti,
         // numeratori, denominatori): non entrano qui nella formula (ci pensano apici e frazioni),
         // ma fanno da ponte, cosi' un esponente tra la base e l'uguale non sembra un vuoto.
-        val vicini = tutti
+        // Una frazione trovata prima conta come un pezzo solo, tutto nella formula.
+        class Pezzo(val forme: Collection<Forma>, val sullAsse: Boolean) {
+            val sx = forme.minOf { it.sx }
+            val dx = forme.maxOf { it.dx }
+        }
+        val inBlocco = blocchi.flatten().toHashSet()
+        val pezzi = tutti
             .filter {
-                it.cx < u.sx && it.dx <= u.sx + 0.5f * u.larghezza && it.altezza <= 4f * h &&
+                it !in inBlocco && it.cx < u.sx && it.dx <= u.sx + 0.5f * u.larghezza && it.altezza <= 4f * h &&
                     it.basso >= u.asse - 2.2f * h && it.alto <= u.asse + 2.2f * h
             }
-            .sortedByDescending { it.dx }
+            .map { Pezzo(listOf(it), attraversa(it, u.asse, h)) } + blocchi.map { Pezzo(it, true) }
         val scelti = ArrayList<Forma>()
         var fronte = u.sx
-        for (f in vicini) {
-            if (f.dx < fronte - VUOTO * h || Calcolatore.risultato(f.tratto)) break
-            if (attraversa(f, u.asse, h)) scelti += f
-            if (f.sx < fronte) fronte = f.sx
+        for (p in pezzi.sortedByDescending { it.dx }) {
+            if (p.dx < fronte - VUOTO * h || p.forme.any { Calcolatore.risultato(it.tratto) }) break
+            if (p.sullAsse) scelti += p.forme
+            if (p.sx < fronte) fronte = p.sx
         }
         // Un uguale gia' scritto sulla stessa riga chiude la formula: si tiene solo quello che
         // c'e' dopo (per esempio "3+4=7  2+2=" -> "2+2").
@@ -125,15 +135,11 @@ internal object Raccoglitore {
         val out = ArrayList<Forma>()
         for (b in scelti) {
             if (!b.orizzontale || b.larghezza < 0.45f * h) continue
-            val margine = 0.15f * b.larghezza + 0.1f * h
-            val sx = b.sx - margine
-            val dx = b.dx + margine
-            fun inColonna(f: Forma) = f !== b && f.cx in sx..dx && f.altezza <= 3f * h
-            val presiSopra = scelti.filter { inColonna(it) && it.cy < b.cy }
-            val presiSotto = scelti.filter { inColonna(it) && it.cy > b.cy }
-            val liberi = altri.filter { it !in scelti && inColonna(it) }
-            val sopra = catena(b, presiSopra, liberi.filter { it.cy < b.cy && it.basso <= b.basso + 0.15f * h }, h)
-            val sotto = catena(b, presiSotto, liberi.filter { it.cy > b.cy && it.alto >= b.alto - 0.15f * h }, h)
+            val presiSopra = scelti.filter { Colonna.dentro(b, it, h) && it.cy < b.cy }
+            val presiSotto = scelti.filter { Colonna.dentro(b, it, h) && it.cy > b.cy }
+            val liberi = altri.filter { it !in scelti && Colonna.dentro(b, it, h) }
+            val sopra = catena(b, presiSopra, liberi.filter { Colonna.sopra(b, it, h) }, h)
+            val sotto = catena(b, presiSotto, liberi.filter { Colonna.sotto(b, it, h) }, h)
             if ((presiSopra + sopra).any { !it.piccolo(h) } && (presiSotto + sotto).any { !it.piccolo(h) }) {
                 out += sopra
                 out += sotto
@@ -142,7 +148,41 @@ internal object Raccoglitore {
         return out
     }
 
-    /** I [candidati] raggiungibili dalla [barra] (o dai [presi]) passando per tratti vicini in verticale. */
+    /**
+     * Le frazioni vicino all'asse, dalla barra piu' lunga (cosi' in una frazione di frazioni la
+     * barra principale prende tutto): un trattino orizzontale non lontano dall'asse con simboli
+     * veri sia sopra sia sotto, nella sua colonna. Ogni blocco e' barra + numeratore + denominatore.
+     */
+    private fun blocchiFrazione(altri: List<Forma>, u: Uguale, h: Float): List<Set<Forma>> {
+        val barre = altri
+            .filter {
+                it.orizzontale && it.larghezza >= 0.45f * h && it.cx < u.sx && it.dx <= u.sx + 0.5f * u.larghezza &&
+                    abs(it.cy - u.asse) <= 1.2f * h
+            }
+            .sortedByDescending { it.larghezza }
+        val presi = HashSet<Forma>()
+        val out = ArrayList<Set<Forma>>()
+        for (b in barre) {
+            if (b in presi) continue
+            val liberi = altri.filter { it !in presi && Colonna.dentro(b, it, h) }
+            val sopra = catena(b, emptyList(), liberi.filter { Colonna.sopra(b, it, h) }, h)
+            val sotto = catena(b, emptyList(), liberi.filter { Colonna.sotto(b, it, h) }, h)
+            if (sopra.any { !it.piccolo(h) } && sotto.any { !it.piccolo(h) }) {
+                val blocco = LinkedHashSet<Forma>()
+                blocco += b
+                blocco += sopra
+                blocco += sotto
+                out += blocco
+                presi += blocco
+            }
+        }
+        return out
+    }
+
+    /**
+     * I [candidati] raggiungibili dalla [barra] (o dai [presi]) passando per tratti vicini in
+     * verticale: fino a [Colonna.DALLA_BARRA] dalla barra, [Colonna.TRA_TRATTI] tra un tratto e l'altro.
+     */
     private fun catena(barra: Forma, presi: List<Forma>, candidati: List<Forma>, h: Float): List<Forma> {
         val legati = ArrayList<Forma>(presi)
         legati += barra
@@ -154,7 +194,11 @@ internal object Raccoglitore {
             val iter = resto.iterator()
             while (iter.hasNext()) {
                 val c = iter.next()
-                if (legati.any { distanzaY(it, c) <= 0.7f * h && sovrapposizioneX(it, c) > -0.3f * h }) {
+                val vicino = legati.any {
+                    val passo = if (it === barra) Colonna.DALLA_BARRA else Colonna.TRA_TRATTI
+                    distanzaY(it, c) <= passo * h && sovrapposizioneX(it, c) > -0.3f * h
+                }
+                if (vicino) {
                     legati += c
                     out += c
                     iter.remove()
@@ -193,4 +237,42 @@ internal object Raccoglitore {
     /** Puntini e virgole vicino all'asse: la virgola dei decimali, il punto per, i puntini del diviso. */
     private fun segnetto(c: Forma, asse: Float, h: Float): Boolean =
         maxOf(c.larghezza, c.altezza) <= 0.45f * h && abs(c.cy - asse) <= 0.9f * h
+}
+
+/**
+ * La colonna di una barra di frazione, uguale per la raccolta e per l'analisi della struttura.
+ * A mano la barra viene spesso corta o spostata rispetto alle cifre, e numeratore e
+ * denominatore stanno piu' o meno staccati: la colonna e' un po' piu' larga della barra.
+ */
+internal object Colonna {
+    /** Distanza massima tra la barra e il primo tratto sopra o sotto, in altezze dei simboli. */
+    const val DALLA_BARRA = 1.0f
+
+    /**
+     * La stessa distanza nell'analisi della struttura, dove i tratti sono gia' solo quelli della
+     * formula (la raccolta ha gia' escluso le altre righe) e l'altezza tipica si stima su tutta la
+     * formula, non solo vicino all'uguale: si puo' essere piu' larghi.
+     */
+    const val DALLA_BARRA_STRUTTURA = 1.3f
+
+    /** Distanza massima tra due tratti dello stesso numeratore o denominatore. */
+    const val TRA_TRATTI = 0.7f
+
+    private fun margine(b: Forma, h: Float) = minOf(0.2f * b.larghezza, 0.4f * h) + 0.25f * h
+
+    /** [f] ha il centro nella colonna di [b] e non ne esce molto. */
+    fun dentro(b: Forma, f: Forma, h: Float): Boolean {
+        val m = margine(b, h)
+        return f !== b && f.altezza <= 3f * h && f.cx in b.sx - m..b.dx + m &&
+            f.sx >= b.sx - m - 0.3f * h && f.dx <= b.dx + m + 0.3f * h
+    }
+
+    /**
+     * Sopra la barra: il centro sta piu' in alto della barra e il tratto non la attraversa. I
+     * simboli della riga accanto alla barra (il piu', le cifre) stanno alla sua altezza e restano fuori.
+     */
+    fun sopra(b: Forma, f: Forma, h: Float) = f.cy < b.alto && f.basso <= b.basso + 0.15f * h
+
+    /** Sotto la barra, come [sopra]. */
+    fun sotto(b: Forma, f: Forma, h: Float) = f.cy > b.basso && f.alto >= b.alto - 0.15f * h
 }

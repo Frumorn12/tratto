@@ -35,7 +35,7 @@ class Quaderno(val stile: Stile = Stile.STAMPATELLO, val altezzaX: Float = 16f) 
     /** Altezza delle cifre scritte con [scala] 1. */
     val hCifre: Float get() = Calcolatore.rapportoCifre(stile) * altezzaX
 
-    private fun registra(t: List<Tratto>, testo: String) {
+    fun registra(t: List<Tratto>, testo: String) {
         val i = quantiSimboli++
         for (x in t) simboli[x.id] = i to testo
         tratti += t

@@ -89,6 +89,28 @@ internal object Struttura {
         return altezzaCifre(alte).coerceIn(0.3f * hPadre, 1.6f * hPadre)
     }
 
+    /**
+     * Vero se in una riga (o in un suo pezzo) ci sono due simboli uno sopra l'altro senza una
+     * struttura che li spieghi: per esempio una frazione con il denominatore troppo lontano
+     * dalla barra. Letti in fila darebbero un risultato sbagliato ("3" sopra "4" -> 34): meglio
+     * non scrivere niente.
+     */
+    fun ambigua(riga: Riga): Boolean {
+        val gruppi = riga.voci.map { it.elemento }.filterIsInstance<Gruppo>()
+        for (i in gruppi.indices) for (j in i + 1 until gruppi.size) {
+            val a = gruppi[i]
+            val b = gruppi[j]
+            val stretta = minOf(maxOf(a.larghezza, 0.15f * riga.h), maxOf(b.larghezza, 0.15f * riga.h))
+            if (sovrapposizioneX(a, b) >= 0.5f * stretta && distanzaY(a, b) > 0.1f * riga.h) return true
+        }
+        return riga.voci.any { v ->
+            val e = v.elemento
+            (v.esponente?.let { ambigua(it) } ?: false) ||
+                (e is Frazione && (ambigua(e.numeratore) || ambigua(e.denominatore))) ||
+                (e is Radice && ambigua(e.contenuto))
+        }
+    }
+
     // --- Frazioni e radici ---------------------------------------------------------------------
 
     private class Candidata(val larghezza: Float, val forme: Set<Forma>, val costruisci: (Int) -> Elemento)
@@ -104,20 +126,22 @@ internal object Struttura {
 
     private fun frazione(b: Forma, libere: List<Forma>, h: Float): Candidata? {
         if (!b.orizzontale || b.larghezza < 0.45f * h) return null
-        val margine = 0.15f * b.larghezza + 0.1f * h
-        val colonna = libere.filter { it !== b && it.cx >= b.sx - margine && it.cx <= b.dx + margine }
-        // Sopra: dal piu' vicino alla barra in su, finche' non c'e' un vuoto.
+        val colonna = libere.filter { Colonna.dentro(b, it, h) }
+        // Sopra: dal piu' vicino alla barra in su, finche' non c'e' un vuoto (dalla barra al primo
+        // tratto si tollera un po' di piu': a mano numeratore e denominatore stanno staccati).
         val sopra = ArrayList<Forma>()
         var frontiera = b.alto
-        for (c in colonna.filter { it.cy < b.cy && it.basso <= b.basso + 0.15f * h }.sortedByDescending { it.basso }) {
-            if (c.basso < frontiera - 0.8f * h) break
+        for (c in colonna.filter { Colonna.sopra(b, it, h) }.sortedByDescending { it.basso }) {
+            val passo = if (sopra.isEmpty()) Colonna.DALLA_BARRA_STRUTTURA else Colonna.TRA_TRATTI + 0.1f
+            if (c.basso < frontiera - passo * h) break
             sopra += c
             if (c.alto < frontiera) frontiera = c.alto
         }
         val sotto = ArrayList<Forma>()
         frontiera = b.basso
-        for (c in colonna.filter { it.cy > b.cy && it.alto >= b.alto - 0.15f * h }.sortedBy { it.alto }) {
-            if (c.alto > frontiera + 0.8f * h) break
+        for (c in colonna.filter { Colonna.sotto(b, it, h) }.sortedBy { it.alto }) {
+            val passo = if (sotto.isEmpty()) Colonna.DALLA_BARRA_STRUTTURA else Colonna.TRA_TRATTI + 0.1f
+            if (c.alto > frontiera + passo * h) break
             sotto += c
             if (c.basso > frontiera) frontiera = c.basso
         }

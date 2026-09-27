@@ -58,6 +58,7 @@ object Calcolatore {
         val riga = Struttura.analizza(raccolta.forme, raccolta.h)
         traccia { "uguale trovato: ${raccolta.forme.size} tratti, schema ${Lettura.schema(riga).parti.joinToString("") { if (it is Lettura.Fissa) it.testo else "□" }}" }
         if (Lettura.banale(riga)) return null
+        if (Struttura.ambigua(riga)) return null.also { traccia { "simboli uno sopra l'altro senza struttura: niente risultato" } }
         return try {
             if (!Trascrittore.modelloPronto(context)) return null
             BellaScrittura.prepara(context)
@@ -89,7 +90,7 @@ object Calcolatore {
     ): Risultato? {
         val raccolta = trova(tratti, nuovi, adesso) ?: return null
         val riga = Struttura.analizza(raccolta.forme, raccolta.h)
-        if (Lettura.banale(riga)) return null
+        if (Lettura.banale(riga) || Struttura.ambigua(riga)) return null
         return calcola(raccolta, riga, stile, idNuovo, lettore)
     }
 
