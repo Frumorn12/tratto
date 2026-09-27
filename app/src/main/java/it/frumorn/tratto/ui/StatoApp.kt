@@ -52,6 +52,12 @@ class StatoApp(private val context: Context, val archivio: Archivio, val prefere
     /** Tratti copiati con il lazo, incollabili in qualsiasi nota. */
     var appunti: List<Tratto> = emptyList()
 
+    /**
+     * Immagini e caselle di testo copiate con il lazo insieme ai tratti. Per le immagini c'e' anche il
+     * file: incollando in un'altra nota lo si ricopia li'.
+     */
+    var appuntiOggetti: List<Pair<it.frumorn.tratto.data.Oggetto, File?>> = emptyList()
+
     init {
         Pennelli.sensibilita = preferenze.sensibilita
     }

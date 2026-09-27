@@ -601,15 +601,26 @@ class EditorView(context: Context) : FrameLayout(context), InProgressStrokesFini
         return synchronized(p) { p.tratti.filter { it.id in s.ids } }
     }
 
-    /** Incolla dei tratti al centro della pagina visibile, spostati di un poco se sono uguali. */
-    fun incolla(tratti: List<Tratto>) {
+    /** Gli oggetti presi con il lazo, nell'ordine di disegno. */
+    fun copiaOggettiSelezione(): List<Oggetto> {
+        val s = selezione ?: return emptyList()
+        val p = documento?.pagine?.getOrNull(s.pagina) ?: return emptyList()
+        return synchronized(p) { p.oggetti.filter { it.id in s.oggetti } }
+    }
+
+    /**
+     * Incolla dei tratti (e degli oggetti, gia' pronti per questa nota) al centro della pagina visibile,
+     * spostati di un poco se sono uguali.
+     */
+    fun incolla(tratti: List<Tratto>, oggetti: List<Oggetto> = emptyList()) {
         val d = documento ?: return
-        if (tratti.isEmpty()) return
+        if (tratti.isEmpty() && oggetti.isEmpty()) return
         val i = foglio.paginaCorrente()
         val p = d.pagine[i]
         d.caricaTratti(p)
         var minX = Float.MAX_VALUE; var minY = Float.MAX_VALUE; var maxX = -Float.MAX_VALUE; var maxY = -Float.MAX_VALUE
         tratti.forEach { t -> for (k in 0 until t.quanti) { val x = t.punti[k * Tratto.CAMPI]; val y = t.punti[k * Tratto.CAMPI + 1]; minX = min(minX, x); minY = min(minY, y); maxX = max(maxX, x); maxY = max(maxY, y) } }
+        oggetti.forEach { o -> val r = DisegnoOggetti.riquadro(o); minX = min(minX, r.left); minY = min(minY, r.top); maxX = max(maxX, r.right); maxY = max(maxY, r.bottom) }
         val cy = (height / 2f - foglio.ty) / foglio.scala - foglio.cimaPagina(i)
         val dx = FoglioView.LARGHEZZA / 2 - (minX + maxX) / 2 + 20f
         val dy = cy - (minY + maxY) / 2 + 20f
@@ -618,8 +629,13 @@ class EditorView(context: Context) : FrameLayout(context), InProgressStrokesFini
             for (k in 0 until t.quanti) { pts[k * Tratto.CAMPI] += dx; pts[k * Tratto.CAMPI + 1] += dy }
             Tratto(d.nuovoIdTratto(), t.penna, t.colore, t.spessore, pts)
         }
-        d.esegui(Modifica(p, emptyList(), nuovi))
-        selezione = Selezione(i, nuovi.map { it.id }.toSet(), RectF(minX + dx, minY + dy, maxX + dx, maxY + dy).apply { inset(-6f, -6f) })
+        val base = synchronized(p) { p.oggetti.size }
+        val oggettiNuovi = oggetti.mapIndexed { k, o -> base + k to o.spostato(dx, dy) }
+        d.esegui(Modifica(p, emptyList(), nuovi, emptyList(), oggettiNuovi))
+        selezione = Selezione(
+            i, nuovi.map { it.id }.toSet(), RectF(minX + dx, minY + dy, maxX + dx, maxY + dy).apply { inset(-6f, -6f) },
+            oggettiNuovi.map { it.second.id }.toSet(),
+        )
         foglio.invalidate()
         alTratto?.invoke()
     }

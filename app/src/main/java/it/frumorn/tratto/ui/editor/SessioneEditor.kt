@@ -345,10 +345,45 @@ class SessioneEditor(private val stato: StatoApp, val id: String, context: Conte
         programmaSalvataggio()
     }
 
-    fun copia() { stato.appunti = vista.copiaSelezione() }
+    fun copia() {
+        stato.appunti = vista.copiaSelezione()
+        val d = documento
+        stato.appuntiOggetti = vista.copiaOggettiSelezione().map { o ->
+            o to (o as? it.frumorn.tratto.data.Immagine)?.let { d?.fileImmagine(it.file) }
+        }
+    }
+
     fun taglia() { copia(); vista.eliminaSelezione() }
-    fun incolla() { vista.incolla(stato.appunti) }
-    val haAppunti get() = stato.appunti.isNotEmpty()
+
+    /**
+     * Incolla tratti e oggetti copiati con il lazo. Le immagini che vengono da un'altra nota si
+     * ricopiano prima in questa (in sottofondo), cosi' ogni nota resta completa da sola.
+     */
+    fun incolla() {
+        val d = documento ?: return
+        val tratti = stato.appunti
+        val oggetti = stato.appuntiOggetti
+        if (oggetti.isEmpty()) { vista.incolla(tratti); return }
+        stato.scope.launch {
+            val pronti = withContext(Dispatchers.IO) {
+                oggetti.mapNotNull { (o, f) ->
+                    val id = it.frumorn.tratto.data.Archivio.nuovoId()
+                    when (o) {
+                        is it.frumorn.tratto.data.Testo -> o.copy(id = id)
+                        is it.frumorn.tratto.data.Immagine -> {
+                            val sorgente = f?.takeIf { it.isFile } ?: return@mapNotNull null
+                            val file = if (sorgente == d.fileImmagine(o.file)) o.file
+                            else runCatching { d.salvaImmagine(sorgente.extension) { out -> sorgente.inputStream().use { it.copyTo(out) } } }.getOrNull()
+                            file?.let { o.copy(id = id, file = it) }
+                        }
+                    }
+                }
+            }
+            if (!chiusa) vista.incolla(tratti, pronti)
+        }
+    }
+
+    val haAppunti get() = stato.appunti.isNotEmpty() || stato.appuntiOggetti.isNotEmpty()
 
     fun programmaSalvataggio() {
         salvataggio?.cancel()

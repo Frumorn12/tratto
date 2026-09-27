@@ -28,6 +28,8 @@ class ImmaginiEditor(private val alPronta: () -> Unit) {
         override fun sizeOf(key: String, value: Bitmap) = value.width * value.height * 4
     }
     private val inCorso = HashSet<String>()
+    /** Quando e' stata decodificata l'ultima volta ogni richiesta (o e' fallita). */
+    private val fatte = HashMap<String, Long>()
     private val principale = Handler(Looper.getMainLooper())
 
     /**
@@ -39,11 +41,15 @@ class ImmaginiEditor(private val alPronta: () -> Unit) {
         val lato = GRADINI.firstOrNull { it >= px } ?: GRADINI.last()
         cache.get("$chiave@$lato")?.let { return it }
         val richiesta = "$chiave@$lato"
-        if (inCorso.add(richiesta)) {
+        // Una richiesta appena fatta non si ripete: se la memoria non basta per tutte le immagini in
+        // vista (o il file non si legge), si andrebbe avanti a decodificare e ridisegnare in cerchio.
+        val recente = fatte[richiesta]?.let { android.os.SystemClock.uptimeMillis() - it < RIPROVA_MS } == true
+        if (!recente && inCorso.add(richiesta)) {
             decodificatore.execute {
                 val bmp = decodifica(file, lato, hardware = true)
                 principale.post {
                     inCorso.remove(richiesta)
+                    fatte[richiesta] = android.os.SystemClock.uptimeMillis()
                     if (bmp != null) {
                         cache.put(richiesta, bmp)
                         alPronta()
@@ -62,6 +68,7 @@ class ImmaginiEditor(private val alPronta: () -> Unit) {
         /** Larghezze a cui si decodificano le immagini: le immagini salvate non superano 2048 px di lato. */
         private val GRADINI = intArrayOf(256, 512, 1024, 2048)
         private const val MEMORIA = 96 shl 20
+        private const val RIPROVA_MS = 5000L
 
         private val decodificatore = Executors.newFixedThreadPool(2) { r -> Thread(r, "immagini").apply { isDaemon = true; priority = Thread.NORM_PRIORITY - 1 } }
 
