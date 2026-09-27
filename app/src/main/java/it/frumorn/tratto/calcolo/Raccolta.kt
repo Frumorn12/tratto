@@ -103,7 +103,12 @@ internal object Raccoglitore {
             .map { it.altezza }
             .ifEmpty { null }
 
-    private fun attraversa(f: Forma, asse: Float, h: Float) = f.alto <= asse + FASCIA * h && f.basso >= asse - FASCIA * h
+    /**
+     * Il tratto entra davvero nella fascia dell'asse: sfiorarla non basta (un esponente che ci
+     * arriva con la punta di un 1, per 1 unita' su 30, non e' una cifra della riga).
+     */
+    private fun attraversa(f: Forma, asse: Float, h: Float) =
+        f.alto <= asse + FASCIA * h - 0.08f * h && f.basso >= asse - FASCIA * h + 0.08f * h
 
     /**
      * I tratti sull'asse, da destra verso sinistra fino al primo vuoto largo, al primo risultato
@@ -250,16 +255,25 @@ internal object Raccoglitore {
      * accanto a un altro esponente, come lo 0 di 10). Non troppo in alto, se no e' la riga sopra.
      */
     private fun apice(c: Forma, scelti: Set<Forma>, apici: Set<Forma>, asse: Float, h: Float): Boolean {
-        if (c.altezza > 0.85f * h || c.larghezza > 1.5f * h) return false
+        if (c.altezza > 1.2f * h || c.larghezza > 1.5f * h) return false
         // Un altro tratto dello stesso simbolo di un esponente gia' preso (un 3 o un 5 scritti in
         // due tratti): la parte alta puo' stare piu' in alto di quanto si accetta da sola.
-        if (apici.any { a -> sovrapposizioneX(a, c) > 0.3f * minOf(a.larghezza, c.larghezza) && distanzaY(a, c) <= 0.25f * h }) return true
-        if (c.cy > asse - 0.2f * h || c.basso < asse - 0.9f * h) return false
+        if (c.altezza <= 0.85f * h && apici.any { a -> sovrapposizioneX(a, c) > 0.3f * minOf(a.larghezza, c.larghezza) && distanzaY(a, c) <= 0.25f * h }) return true
+        if (c.cy > asse - 0.2f * h) return false
         return scelti.any { s ->
             if (s in apici) {
-                abs(c.cy - s.cy) <= 0.35f * h && c.sx >= s.cx && c.sx <= s.dx + 0.6f * h
+                // Accanto a un esponente gia' preso, alla stessa altezza: l'altezza sulla riga
+                // l'ha gia' controllata il primo (in "2¹²⁸" scritto alto, l'8 stava piu' su del limite).
+                c.altezza <= maxOf(0.85f * h, 1.2f * s.altezza) &&
+                    abs(c.cy - s.cy) <= 0.35f * h && c.sx >= s.cx && c.sx <= s.dx + 0.6f * h
             } else {
-                s.altezza >= 0.5f * h && c.sx >= s.cx && c.sx <= s.dx + 0.8f * h && c.cy < s.alto + 0.35f * s.altezza
+                // In alto a destra di un simbolo della formula. Si misura sul simbolo, non solo
+                // sulla riga: dopo una parentesi alta l'esponente sta piu' in alto e puo' essere
+                // grande quasi come le cifre ("20+(3-1)³": un 3 alto 26 con cifre da 30; "2¹²⁸" con
+                // un 1 alto 31 su un 2 alto 36), ma non si stacca dalla cima del simbolo di piu' di
+                // mezza cifra (se no e' la riga sopra).
+                s.altezza >= 0.5f * h && c.sx >= s.cx && c.sx <= s.dx + 0.8f * h && c.cy < s.alto + 0.35f * s.altezza &&
+                    c.altezza <= maxOf(0.85f * h, 0.9f * s.altezza) && c.basso >= minOf(asse - 0.9f * h, s.alto - 0.5f * h)
             }
         }
     }

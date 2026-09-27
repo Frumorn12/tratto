@@ -109,6 +109,7 @@ internal object Lettura {
         for ((k, s) in schema.sequenze.withIndex()) {
             var candidati = lettore.leggi(s.tratti, pre, 2f * s.h)
             if (s.forzati.isNotEmpty()) candidati = allinea(s, candidati) ?: aPezzi(s, pre, lettore)
+            candidati = coerenti(s, candidati)
             val iniziale = k == 0 && (schema.parti.firstOrNull() as? Buco)?.sequenza == 0
             val v = Testo.varianti(candidati, iniziale)
             if (v.isEmpty()) return null
@@ -140,6 +141,33 @@ internal object Lettura {
             compatto.toString()
         }.distinct()
         return out.ifEmpty { null }
+    }
+
+    /**
+     * Le letture riordinate, a pari probabilita' per ML Kit, secondo la forma dei simboli: un 1
+     * e' stretto, un 4 o un 7 no. Sul tablet un 1 col trattino iniziale (largo 12, alto 29) era
+     * letto "4" in una delle due letture migliori. Si guarda solo quando c'e' un carattere per
+     * simbolo, e non si scarta niente: cambia solo l'ordine.
+     */
+    internal fun coerenti(s: Sequenza, candidati: List<String>): List<String> {
+        if (candidati.size < 2) return candidati
+        fun penalita(c: String): Int {
+            val compatto = c.filterNot { it.isWhitespace() }
+            if (compatto.length != s.gruppi.size) return 0
+            var p = 0
+            for ((i, ch) in compatto.withIndex()) {
+                val g = s.gruppi[i]
+                val proporzione = g.larghezza / g.altezza.coerceAtLeast(1f)
+                p += when (ch) {
+                    '1' -> if (proporzione > 0.75f) 1 else 0
+                    '4' -> if (proporzione < 0.45f) 1 else 0
+                    '7' -> if (proporzione < 0.35f) 1 else 0
+                    else -> 0
+                }
+            }
+            return p
+        }
+        return candidati.withIndex().sortedWith(compareBy({ penalita(it.value) }, { it.index })).map { it.value }
     }
 
     /** Ripiego: si leggono a parte i pezzi tra un simbolo forzato e l'altro. */

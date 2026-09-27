@@ -238,7 +238,7 @@ internal object Struttura {
         // Un esponente scritto stretto non si attacca alla base.
         val (grande, piccolo) = if (a.altezza >= b.altezza) a to b else b to a
         val apice = piccolo.sx >= grande.cx && piccolo.cy <= grande.alto + 0.3f * grande.altezza &&
-            piccolo.altezza <= 0.85f * grande.altezza && !piccolo.piatto(h)
+            piccolo.altezza <= 0.9f * grande.altezza && !piccolo.piatto(h)
         return !apice
     }
 
@@ -299,7 +299,7 @@ internal object Struttura {
                 val altezza = if (parentesi) 0.8f * e.altezza else e.altezza
                 // Rispetto al numero intero, non solo alla sua ultima cifra: in "20⁵" con lo 0
                 // piccolo (alto 25, il 2 alto 44) un 5 alto 26 e' ancora un esponente.
-                val massima = 0.85f * (if (parentesi) minOf(altezza, h) else maxOf(altezza, 0.8f * h, numero))
+                val massima = if (parentesi) 0.85f * minOf(altezza, h) else 0.9f * maxOf(altezza, 0.8f * h, numero)
                 var ultimo: Ingombro = e
                 while (i < elementi.size) {
                     val c = elementi[i]
