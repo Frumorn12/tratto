@@ -198,7 +198,8 @@ private fun Tendina(etichetta: String, descrizione: String, larghezza: Int, stil
                 .padding(horizontal = 8.dp, vertical = 10.dp).widthIn(min = larghezza.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(etichetta, style = stile, maxLines = 1, modifier = Modifier.weight(1f, fill = false))
+            // Il testo non si restringe: nella barra stretta la dimensione "14" diventava "1".
+            Text(etichetta, style = stile, maxLines = 1, softWrap = false)
             Spacer(Modifier.width(2.dp))
             Icona(R.drawable.ic_keyboard_arrow_down, null, dimensione = 18.dp)
         }
@@ -251,7 +252,7 @@ private fun punti(p: Float) = if (p == p.roundToInt().toFloat()) p.roundToInt().
 
 @Composable
 private fun MenuDimensione(attuale: Float?, onScelta: (Float) -> Unit) {
-    Tendina(attuale?.let { punti(it) } ?: "–", "Dimensione del testo", 28, stile = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold)) { chiudi ->
+    Tendina(attuale?.let { punti(it) } ?: "–", "Dimensione del testo", 44, stile = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold)) { chiudi ->
         DIMENSIONI.forEach { d ->
             DropdownMenuItem(
                 text = { Text(punti(d)) },
