@@ -190,6 +190,17 @@ fun SharedTransitionScope.SchermataEditor(
             BarraSelezione(sessione, Modifier.maschera("selezione"))
         }
 
+        // Pannello della trascrizione, sopra la barra della selezione.
+        AnimatedVisibility(
+            visible = sessione.trascrizione != null,
+            modifier = Modifier.align(Alignment.BottomCenter).windowInsetsPadding(WindowInsets.navigationBars).padding(bottom = 124.dp),
+            enter = slideInVertically(tween(TrattoMotion.ENTER_MS, easing = TrattoMotion.Enter)) { it / 2 } + fadeIn(),
+            exit = slideOutVertically(tween(TrattoMotion.EXIT_MS, easing = TrattoMotion.Exit)) { it / 2 } + fadeOut(),
+        ) {
+            DisposableEffect(Unit) { onDispose { maschere.remove("trascrizione") } }
+            PannelloTrascrizione(stato, sessione, Modifier.maschera("trascrizione"))
+        }
+
         // "Incolla" quando c'e' qualcosa negli appunti e il lazo e' attivo.
         AnimatedVisibility(
             visible = !sessione.selezione && sessione.strumenti.strumento == Strumento.LAZO && sessione.haAppunti,
@@ -498,11 +509,78 @@ private fun BarraSelezione(s: SessioneEditor, modifier: Modifier) {
                 Box(Modifier.padding(8.dp)) { GrigliaColori(StatoStrumenti.TAVOLOZZA, 0) { s.vista.coloraSelezione(it); colori = false } }
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
+                AzioneSelezione(R.drawable.ic_text_fields, "Trascrivi") { s.trascrivi() }
                 AzioneSelezione(R.drawable.ic_palette, "Colore") { colori = !colori }
                 AzioneSelezione(R.drawable.ic_content_copy, "Copia") { s.copia() }
                 AzioneSelezione(R.drawable.ic_content_cut, "Taglia") { s.taglia() }
                 AzioneSelezione(R.drawable.ic_delete, "Elimina") { s.vista.eliminaSelezione() }
                 AzioneSelezione(R.drawable.ic_close, "Chiudi") { s.vista.chiudiSelezione() }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PannelloTrascrizione(stato: StatoApp, s: SessioneEditor, modifier: Modifier) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    // Tiene l'ultimo stato mentre il pannello si chiude, cosi' l'animazione d'uscita non resta vuota.
+    var ultimo by remember { mutableStateOf<SessioneEditor.Trascrizione>(SessioneEditor.Trascrizione.InCorso) }
+    s.trascrizione?.let { ultimo = it }
+    Surface(
+        shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surface, shadowElevation = 10.dp,
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        modifier = modifier.width(560.dp),
+    ) {
+        Column(Modifier.padding(20.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icona(R.drawable.ic_text_fields, null, tinta = MaterialTheme.colorScheme.primary)
+                Spacer(Modifier.width(10.dp))
+                Text("Trascrizione", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                BottoneIcona(R.drawable.ic_close, "Chiudi la trascrizione", dimensione = 40.dp) { s.chiudiTrascrizione() }
+            }
+            Spacer(Modifier.height(10.dp))
+            when (val t = ultimo) {
+                SessioneEditor.Trascrizione.InCorso -> {
+                    androidx.compose.material3.LinearProgressIndicator(Modifier.fillMaxWidth())
+                    Spacer(Modifier.height(8.dp))
+                    Text("Leggo la tua scrittura…", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                SessioneEditor.Trascrizione.ServeModello -> {
+                    Text("Per trascrivere serve il riconoscimento della scrittura in italiano: circa 14 MB da scaricare una volta sola. Poi funziona anche senza internet.",
+                        style = MaterialTheme.typography.bodyMedium)
+                    Spacer(Modifier.height(12.dp))
+                    androidx.compose.material3.Button(onClick = { s.scaricaModello() }) { Text("Scarica e trascrivi") }
+                }
+                is SessioneEditor.Trascrizione.Errore -> {
+                    Text(t.messaggio, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
+                    Spacer(Modifier.height(8.dp))
+                    TextButton(onClick = { s.trascrivi() }) { Text("Riprova") }
+                }
+                is SessioneEditor.Trascrizione.Pronta -> {
+                    var testo by remember(t.testo) { mutableStateOf(t.testo) }
+                    androidx.compose.material3.OutlinedTextField(
+                        testo, { testo = it }, modifier = Modifier.fillMaxWidth(),
+                        textStyle = MaterialTheme.typography.bodyLarge, minLines = 2, maxLines = 6,
+                        supportingText = { Text("Puoi correggere il testo prima di usarlo") },
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    val predefinito = stato.preferenze.stileBellaScrittura
+                    val altro = if (predefinito == it.frumorn.tratto.scrittura.Stile.CORSIVO) it.frumorn.tratto.scrittura.Stile.STAMPATELLO else it.frumorn.tratto.scrittura.Stile.CORSIVO
+                    fun nome(st: it.frumorn.tratto.scrittura.Stile) = if (st == it.frumorn.tratto.scrittura.Stile.CORSIVO) "corsivo" else "stampatello"
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        androidx.compose.material3.Button(onClick = { s.riscrivi(testo, predefinito) }) { Text("Riscrivi in ${nome(predefinito)}") }
+                        androidx.compose.material3.OutlinedButton(onClick = { s.riscrivi(testo, altro) }) { Text("In ${nome(altro)}") }
+                        Spacer(Modifier.weight(1f))
+                        BottoneIcona(R.drawable.ic_content_copy, "Copia il testo", dimensione = 44.dp) {
+                            val cm = context.getSystemService(android.content.ClipboardManager::class.java)
+                            cm.setPrimaryClip(android.content.ClipData.newPlainText("Trascrizione", testo))
+                        }
+                        BottoneIcona(R.drawable.ic_ios_share, "Condividi il testo", dimensione = 44.dp) {
+                            val invio = android.content.Intent(android.content.Intent.ACTION_SEND).setType("text/plain").putExtra(android.content.Intent.EXTRA_TEXT, testo)
+                            context.startActivity(android.content.Intent.createChooser(invio, "Condividi il testo"))
+                        }
+                    }
+                }
             }
         }
     }

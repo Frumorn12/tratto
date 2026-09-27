@@ -61,6 +61,9 @@ fun Impostazioni(stato: StatoApp) {
             Voce("Doppio clic sul tasto della penna", "Con la penna vicina allo schermo, dentro Tratto") {
                 Scelta(listOf(DoppioClic.NUOVA_NOTA to "Nuova nota", DoppioClic.GOMMA to "Gomma", DoppioClic.NIENTE to "Niente"), p.doppioClic) { p.impostaDoppioClic(it) }
             }
+            Voce("Bella scrittura", "Lo stile usato per riscrivere a mano il testo trascritto") {
+                Scelta(listOf(it.frumorn.tratto.scrittura.Stile.CORSIVO to "Corsivo", it.frumorn.tratto.scrittura.Stile.STAMPATELLO to "Stampatello"), p.stileBellaScrittura) { p.impostaStileBellaScrittura(it) }
+            }
             VoceInterruttore("Scrivi anche con il dito", "Se spento, il dito serve solo a scorrere e zoomare", p.disegnaConDita) { p.impostaDita(it) }
 
             Sezione("Pagine")

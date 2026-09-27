@@ -460,6 +460,27 @@ class EditorView(context: Context) : FrameLayout(context), InProgressStrokesFini
         alTratto?.invoke()
     }
 
+    /**
+     * Mette [nuovi] al posto dei tratti selezionati, in un'unica modifica annullabile.
+     * Gli evidenziatori restano dove sono: sottolineano il testo anche dopo averlo riscritto.
+     */
+    fun sostituisciSelezione(nuovi: List<Tratto>) {
+        val s = selezione ?: return
+        val d = documento ?: return
+        val p = d.pagine[s.pagina]
+        val tolti = synchronized(p) {
+            p.tratti.withIndex().filter { it.value.id in s.ids && it.value.penna != Penna.EVIDENZIATORE }.map { it.index to it.value }
+        }
+        d.esegui(Modifica(p, tolti, nuovi))
+        val box = RectF()
+        synchronized(p) { nuovi.forEach { t -> val b = p.scatola(t); if (box.isEmpty) box.set(b[0], b[1], b[2], b[3]) else box.union(b[0], b[1], b[2], b[3]) } }
+        selezione = Selezione(s.pagina, nuovi.map { it.id }.toSet(), box)
+        foglio.invalidate()
+        alTratto?.invoke()
+    }
+
+    fun nuovoId(): Long = documento?.nuovoIdTratto() ?: System.nanoTime()
+
     fun copiaSelezione(): List<Tratto> {
         val s = selezione ?: return emptyList()
         val p = documento?.pagine?.getOrNull(s.pagina) ?: return emptyList()

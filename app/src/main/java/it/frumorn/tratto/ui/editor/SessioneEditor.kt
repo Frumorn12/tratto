@@ -11,6 +11,11 @@ import it.frumorn.tratto.editor.Anteprima
 import it.frumorn.tratto.editor.Documento
 import it.frumorn.tratto.editor.EditorView
 import it.frumorn.tratto.editor.StatoStrumenti
+import it.frumorn.tratto.editor.FoglioView
+import it.frumorn.tratto.data.Penna
+import it.frumorn.tratto.scrittura.BellaScrittura
+import it.frumorn.tratto.scrittura.Stile
+import it.frumorn.tratto.scrittura.Trascrittore
 import it.frumorn.tratto.pdf.PdfSfondo
 import it.frumorn.tratto.ui.StatoApp
 import kotlinx.coroutines.Dispatchers
@@ -173,6 +178,68 @@ class SessioneEditor(private val stato: StatoApp, val id: String, context: Conte
     fun rinomina(nuovo: String) {
         titolo = nuovo
         stato.rinomina(id, nuovo.trim())
+    }
+
+    /** Pannello della trascrizione: null se chiuso. */
+    var trascrizione by mutableStateOf<Trascrizione?>(null)
+        private set
+
+    sealed interface Trascrizione {
+        /** Il modello italiano non c'e' ancora: si chiede di scaricarlo. */
+        data object ServeModello : Trascrizione
+        data object InCorso : Trascrizione
+        data class Pronta(val testo: String) : Trascrizione
+        data class Errore(val messaggio: String) : Trascrizione
+    }
+
+    private var contesto: android.content.Context = context.applicationContext
+
+    fun trascrivi() {
+        val tratti = vista.copiaSelezione()
+        if (tratti.isEmpty()) return
+        trascrizione = Trascrizione.InCorso
+        stato.scope.launch {
+            trascrizione = try {
+                if (!Trascrittore.modelloPronto(contesto)) Trascrizione.ServeModello
+                else Trascrizione.Pronta(Trascrittore.trascrivi(contesto, tratti).trim())
+            } catch (e: Exception) {
+                Trascrizione.Errore(e.message ?: "Non sono riuscito a leggere la scrittura")
+            }
+        }
+    }
+
+    fun scaricaModello() {
+        trascrizione = Trascrizione.InCorso
+        stato.scope.launch {
+            if (Trascrittore.scaricaModello(contesto)) trascrivi()
+            else trascrizione = Trascrizione.Errore((Trascrittore.stato.value as? Trascrittore.StatoModello.Errore)?.messaggio ?: "Download non riuscito: controlla la connessione")
+        }
+    }
+
+    fun chiudiTrascrizione() { trascrizione = null }
+
+    /** Riscrive il testo con la "bella scrittura" al posto dei tratti selezionati, nello stesso punto. */
+    fun riscrivi(testo: String, stile: Stile) {
+        val originali = vista.copiaSelezione()
+        val sel = vista.selezione ?: return
+        if (originali.isEmpty() || testo.isBlank()) return
+        stato.scope.launch {
+            val nuovi = withContext(Dispatchers.Default) {
+                BellaScrittura.prepara(contesto)
+                val prevalente = originali.groupingBy { it.colore }.eachCount().maxByOrNull { it.value }!!.key
+                val penna = originali.groupingBy { it.penna }.eachCount().maxByOrNull { it.value }!!.key
+                    .let { if (it == Penna.EVIDENZIATORE) Penna.PENNA else it }
+                val spessore = originali.filter { it.penna == penna }.map { it.spessore }.sorted().let { it.getOrElse(it.size / 2) { 3.2f } }
+                val box = sel.scatola
+                val larghezza = (FoglioView.LARGHEZZA - 40f - box.left).coerceAtLeast(box.width())
+                BellaScrittura.componi(
+                    testo, stile, box.left, box.top, BellaScrittura.altezzaXStimata(originali), larghezza,
+                    prevalente, penna, spessore, idNuovo = { vista.nuovoId() },
+                )
+            }
+            vista.sostituisciSelezione(nuovi)
+            trascrizione = null
+        }
     }
 
     fun copia() { stato.appunti = vista.copiaSelezione() }

@@ -282,7 +282,9 @@ class FoglioView(context: Context) : View(context) {
         }
         val c = cache.getOrPut(p) { CachePagina(RenderNode("pagina")) }
         val scalaDiversa = abs(c.scala - scala) > 0.001f
-        if (c.versione != p.versione || (scalaDiversa && !pizzicando)) {
+        // hasDisplayList: quando l'app va in secondo piano il sistema puo' liberare i nodi grafici,
+        // e al ritorno vanno ridisegnati anche se la pagina non e' cambiata.
+        if (c.versione != p.versione || (scalaDiversa && !pizzicando) || !c.nodo.hasDisplayList()) {
             val w = (LARGHEZZA * scala).toInt().coerceAtLeast(1)
             val h = (p.pagina.altezza * scala).toInt().coerceAtLeast(1)
             c.nodo.setPosition(0, 0, w, h)
