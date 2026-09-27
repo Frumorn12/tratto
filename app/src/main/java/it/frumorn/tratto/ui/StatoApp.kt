@@ -12,11 +12,14 @@ import it.frumorn.tratto.data.NotaInfo
 import it.frumorn.tratto.data.Preferenze
 import it.frumorn.tratto.data.Sfondo
 import it.frumorn.tratto.data.Tratto
+import it.frumorn.tratto.editor.Anteprima
+import it.frumorn.tratto.editor.Documento
 import it.frumorn.tratto.ink.Pennelli
 import it.frumorn.tratto.pdf.PdfSfondo
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -57,6 +60,34 @@ class StatoApp(private val context: Context, val archivio: Archivio, val prefere
         scope.launch {
             withContext(Dispatchers.IO) { archivio.caricaIndice() }
             indiceCaricato = true
+            rigeneraAnteprimeMancanti()
+        }
+    }
+
+    /** Crea in sottofondo le copertine che mancano (note importate o ripristinate da un backup). */
+    private fun rigeneraAnteprimeMancanti() {
+        scope.launch {
+            var fatte = 0
+            withContext(Dispatchers.IO) {
+                delay(1500) // dopo l'avvio, per non rubare tempo al primo fotogramma
+                for (n in archivio.note.value) {
+                    if (archivio.fileAnteprima(n.id).exists()) continue
+                    runCatching {
+                        val d = Documento(archivio, n).also { it.apri() }
+                        val f = archivio.filePdf(n.id)
+                        val pdf = if (f.exists()) PdfSfondo(f) {} else null
+                        pdf.use { sfondo ->
+                            // Il PDF si disegna in un thread a parte: aspettiamo la prima pagina.
+                            if (sfondo != null && d.pagine.firstOrNull()?.pagina?.pdfPagina == 0) {
+                                repeat(20) { if (sfondo.immagine(0, Anteprima.LARGHEZZA_PX) == null) Thread.sleep(100) }
+                            }
+                            Anteprima.crea(archivio, d, sfondo)
+                        }
+                        fatte++
+                    }
+                }
+            }
+            if (fatte > 0) versioneAnteprime++
         }
     }
 

@@ -10,6 +10,7 @@ import android.graphics.RectF
 import android.graphics.RenderNode
 import android.view.View
 import androidx.ink.rendering.android.canvas.CanvasStrokeRenderer
+import it.frumorn.tratto.data.Penna
 import it.frumorn.tratto.data.Sfondo
 import it.frumorn.tratto.pdf.PdfSfondo
 import kotlin.math.abs
@@ -305,10 +306,14 @@ class FoglioView(context: Context) : View(context) {
         val s = canvas.save()
         canvas.concat(t)
         synchronized(p) {
-            for (tr in p.tratti) {
-                if (tr.id in nascosti) continue
-                val st = p.stroke(tr) ?: continue
-                renderer.draw(canvas, st, t)
+            // Prima gli evidenziatori, poi il resto: l'evidenziatore resta sotto l'inchiostro.
+            for (passata in 0..1) {
+                for (tr in p.tratti) {
+                    if ((tr.penna == Penna.EVIDENZIATORE) != (passata == 0)) continue
+                    if (tr.id in nascosti) continue
+                    val st = p.stroke(tr) ?: continue
+                    renderer.draw(canvas, st, t)
+                }
             }
         }
         canvas.restoreToCount(s)

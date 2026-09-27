@@ -11,6 +11,8 @@ Uso:
   penna.py doppioclic X Y                doppio clic del tasto in hover
   penna.py tap X Y
   penna.py scrivi X Y ALTEZZA testo...   scrittura a mano (serve il pacchetto Hershey-Fonts)
+  penna.py scorri X0 Y0 X1 Y1            trascinamento con un dito
+  penna.py pizzica CX CY D0 D1           pizzico con due dita (distanza iniziale e finale)
 
 Opzioni per tratto: --pressione P (0..1), --tasto (tasto laterale premuto: gomma temporanea)
 """
@@ -90,6 +92,38 @@ def scrivi(s, X, Y, altezza, testo):
         punti = [(x, y, min(1.0, 0.25 + 0.5 * math.sin(math.pi * k / max(1, n - 1)) + 0.12 * math.sin(k / 3 + i))) for k, (x, y) in enumerate(seq)]
         stroke(s, punti, tilt=(22, -14))
 
+TOUCH = "/dev/input/event1"
+ABS_MT_SLOT, ABS_MT_TRACKING_ID, ABS_MT_POSITION_X, ABS_MT_POSITION_Y, ABS_MT_PRESSURE, ABS_MT_TOUCH_MAJOR = 0x2f, 0x39, 0x35, 0x36, 0x3a, 0x30
+
+class ScriptDita(Script):
+    """Come Script, ma scrive nel touchscreen (dita)."""
+    def run(self):
+        global DEV
+        vecchio, DEV = DEV, TOUCH
+        try:
+            super().run()
+        finally:
+            DEV = vecchio
+
+def dita(s, percorsi, passi=24, pausa=0.012):
+    """percorsi: per ogni dito ((x0,y0),(x1,y1)); le dita si muovono insieme."""
+    ids = list(range(len(percorsi)))
+    for k in range(passi + 1):
+        f = k / passi
+        data = b""
+        for i, ((x0, y0), (x1, y1)) in enumerate(percorsi):
+            data += ev(EV_ABS, ABS_MT_SLOT, i)
+            if k == 0:
+                data += ev(EV_ABS, ABS_MT_TRACKING_ID, 100 + i) + ev(EV_ABS, ABS_MT_TOUCH_MAJOR, 8) + ev(EV_ABS, ABS_MT_PRESSURE, 40)
+            data += ev(EV_ABS, ABS_MT_POSITION_X, int(x0 + (x1 - x0) * f)) + ev(EV_ABS, ABS_MT_POSITION_Y, int(y0 + (y1 - y0) * f))
+        if k == 0:
+            data += ev(EV_KEY, BTN_TOUCH, 1)
+        s.frame(data, pausa)
+    data = b""
+    for i in ids:
+        data += ev(EV_ABS, ABS_MT_SLOT, i) + ev(EV_ABS, ABS_MT_TRACKING_ID, -1)
+    s.frame(data + ev(EV_KEY, BTN_TOUCH, 0), 0.05)
+
 def main(argv):
     s = Script()
     cmd = argv[0]
@@ -102,6 +136,14 @@ def main(argv):
         for a, b in zip(pts, pts[1:]):
             seq += interpola(a, b, max(4, int(math.dist(a, b) / 6)))
         stroke(s, [(x, y, pressione) for x, y in seq], tasto="--tasto" in opzioni)
+    elif cmd == "scorri":
+        x0, y0, x1, y1 = map(float, argv[1:5])
+        s = ScriptDita()
+        dita(s, [((x0, y0), (x1, y1))])
+    elif cmd == "pizzica":
+        cx, cy, d0, d1 = map(float, argv[1:5])
+        s = ScriptDita()
+        dita(s, [((cx - d0 / 2, cy), (cx - d1 / 2, cy)), ((cx + d0 / 2, cy), (cx + d1 / 2, cy))], passi=30)
     elif cmd == "scrivi":
         X, Y, H = map(float, argv[1:4])
         scrivi(s, X, Y, H, " ".join(argv[4:]))

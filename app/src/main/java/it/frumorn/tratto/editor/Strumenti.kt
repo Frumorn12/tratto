@@ -23,11 +23,11 @@ data class StatoStrumenti(
 
     companion object {
         val PREDEFINITE = mapOf(
-            Penna.STILOGRAFICA to ImpostazioniPenna(0xFF1E1E1E.toInt(), 5f),
+            Penna.STILOGRAFICA to ImpostazioniPenna(0xFF1E1E1E.toInt(), 3.6f),
             Penna.PENNA to ImpostazioniPenna(0xFF1E1E1E.toInt(), 3.2f),
             Penna.MATITA to ImpostazioniPenna(0xFF3A3A3A.toInt(), 3f),
             Penna.EVIDENZIATORE to ImpostazioniPenna(0xFFFFD600.toInt(), 22f),
-            Penna.PENNELLO to ImpostazioniPenna(0xFF6546F3.toInt(), 10f),
+            Penna.PENNELLO to ImpostazioniPenna(0xFF6546F3.toInt(), 6.5f),
         )
 
         /** Tavolozza principale: neri e grigi, poi i colori piu' usati per prendere appunti. */

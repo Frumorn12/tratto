@@ -35,7 +35,10 @@ object Anteprima {
         c.save()
         c.concat(m)
         synchronized(p) {
-            for (t in p.tratti) p.stroke(t)?.let { renderer.draw(c, it, m) }
+            for (passata in 0..1) for (t in p.tratti) {
+                if ((t.penna == it.frumorn.tratto.data.Penna.EVIDENZIATORE) != (passata == 0)) continue
+                p.stroke(t)?.let { renderer.draw(c, it, m) }
+            }
         }
         c.restore()
         val file = archivio.fileAnteprima(doc.info.id)
