@@ -267,7 +267,8 @@ internal object ScrittorePdf {
                     cs.drawImage(img, Matrix(t.a * w, t.b * w, -t.c * h, -t.d * h, t.x(o.x, o.y + h), t.y(o.x, o.y + h)))
                 }
                 is LivelloPdf -> {
-                    val form = livelli.importPageAsForm(o.sorgente, o.indice)
+                    // Un livello che non si importa si salta: meglio un PDF senza quelle caselle che nessun PDF.
+                    val form = try { livelli.importPageAsForm(o.sorgente, o.indice) } catch (_: java.io.IOException) { continue }
                     cs.saveGraphicsState()
                     // (X, Y) del livello e' (X, altezza - Y) in Tratto.
                     cs.transform(Matrix(t.a, t.b, -t.c, -t.d, t.x(0f, o.altezza), t.y(0f, o.altezza)))

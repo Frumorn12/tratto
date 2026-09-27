@@ -153,7 +153,12 @@ object EsportaPdf {
         } finally {
             pdf.close()
         }
-        val sorgente = PDDocument.load(dati)
+        val sorgente = try {
+            PDDocument.load(dati)
+        } catch (e: IOException) {
+            Log.w(TAG, "Livello del testo illeggibile", e)
+            return null
+        }
         return sorgente to LivelloPdf(sorgente, 0, h.toFloat())
     }
 
@@ -165,6 +170,9 @@ object EsportaPdf {
         val bmp = ImmaginiEditor.decodifica(file, (larghezza * 3.5f).toInt().coerceIn(1, 2048), hardware = false) ?: return null
         return try {
             if (bmp.hasAlpha()) LosslessFactory.createFromImage(doc, bmp) else JPEGFactory.createFromImage(doc, bmp, 0.9f)
+        } catch (e: IOException) {
+            Log.w(TAG, "Immagine non esportata: ${file.name}", e)
+            null
         } finally {
             bmp.recycle()
         }
