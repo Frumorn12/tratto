@@ -61,6 +61,8 @@ class EditorView(context: Context) : FrameLayout(context), InProgressStrokesFini
     var alCambioPagina: ((Int) -> Unit)? = null
     /** Tratti di penna appena finiti, pagina per pagina (per i calcoli automatici). */
     var alTrattiFiniti: ((PaginaViva, List<Tratto>) -> Unit)? = null
+    /** Tirando oltre la fine dell'ultima pagina e rilasciando: si aggiunge una pagina. */
+    var alTiraPagina: (() -> Unit)? = null
 
     private val densita = resources.displayMetrics.density
     private val predittore = MotionEventPredictor.newInstance(this)
@@ -532,6 +534,13 @@ class EditorView(context: Context) : FrameLayout(context), InProgressStrokesFini
     private var ultimoToccoY = 0f
     private var spostato = false
 
+    // Tirare oltre la fine della nota per aggiungere una pagina, come in Samsung Notes.
+    private var trazione = 0f
+    /** Si tira solo se il dito si e' appoggiato con la nota gia' in fondo: uno scorrimento veloce si ferma li'. */
+    private var tiraggioPossibile = false
+    private val tirataMassima = 200 * densita
+    private var ritorno: android.animation.ValueAnimator? = null
+
     private val pizzico = ScaleGestureDetector(context, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
         override fun onScaleBegin(d: ScaleGestureDetector): Boolean { foglio.pizzicando = true; return true }
         override fun onScale(d: ScaleGestureDetector): Boolean {
@@ -554,7 +563,11 @@ class EditorView(context: Context) : FrameLayout(context), InProgressStrokesFini
         val (cx, cy) = centro(e)
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
+                tiraggioPossibile = scorritore.isFinished && foglio.ty <= foglio.limiteTy.start + 1f
                 scorritore.forceFinished(true)
+                ritorno?.cancel(); ritorno = null
+                foglio.tirata = 0f
+                foglio.sogliaTirata = 0.5f * tirataMassima
                 inGestoDita = true
                 spostato = false
                 ultimoX = cx; ultimoY = cy
@@ -562,16 +575,24 @@ class EditorView(context: Context) : FrameLayout(context), InProgressStrokesFini
             MotionEvent.ACTION_POINTER_DOWN, MotionEvent.ACTION_POINTER_UP -> {
                 ultimoX = cx; ultimoY = cy
                 spostato = true
+                if (trazione > 0f) rilasciaTirata(false)
             }
             MotionEvent.ACTION_MOVE -> {
-                val dx = cx - ultimoX; val dy = cy - ultimoY
+                val dx = cx - ultimoX; var dy = cy - ultimoY
                 if (abs(dx) + abs(dy) > 1f) spostato = true
+                if (e.pointerCount == 1 && !foglio.pizzicando) dy = tira(dy)
                 foglio.trasla(dx, dy)
                 ultimoX = cx; ultimoY = cy
             }
             MotionEvent.ACTION_UP -> {
                 val v = velocita
-                if (v != null && spostato) {
+                if (trazione > 0f) {
+                    // Una sgommata veloce verso l'alto e' solo voglia di scorrere: la pagina si
+                    // aggiunge quando si tira e si lascia con calma, come per aggiornare una lista.
+                    v?.computeCurrentVelocity(1000)
+                    val calmo = (v?.yVelocity ?: 0f) > -1200f * densita
+                    rilasciaTirata(foglio.tirata >= foglio.sogliaTirata && calmo)
+                } else if (v != null && spostato) {
                     v.computeCurrentVelocity(1000)
                     val tx = foglio.limiteTx; val ty = foglio.limiteTy
                     scorritore.fling(foglio.tx.toInt(), foglio.ty.toInt(), v.xVelocity.toInt(), v.yVelocity.toInt(),
@@ -588,9 +609,44 @@ class EditorView(context: Context) : FrameLayout(context), InProgressStrokesFini
                 }
                 annullaGestoDita()
             }
-            MotionEvent.ACTION_CANCEL -> annullaGestoDita()
+            MotionEvent.ACTION_CANCEL -> { if (trazione > 0f) rilasciaTirata(false); annullaGestoDita() }
         }
         return true
+    }
+
+    /**
+     * Con la nota gia' in fondo, lo spostamento verso l'alto diventa trazione (con resistenza
+     * crescente) invece di scorrere; tornando giu' la trazione cala e poi si riprende a scorrere.
+     * Restituisce lo spostamento che resta da applicare al foglio.
+     */
+    private fun tira(dy: Float): Float {
+        val inFondo = foglio.ty <= foglio.limiteTy.start + 1f
+        if (trazione <= 0f && !(tiraggioPossibile && inFondo && dy < 0f)) return dy
+        val prima = trazione
+        val eraPronta = foglio.tirata >= foglio.sogliaTirata
+        trazione = (trazione - dy).coerceAtLeast(0f)
+        foglio.paginaFantasma = trazione > 0f
+        foglio.tirata = tirataMassima * (1f - kotlin.math.exp(-trazione / tirataMassima))
+        val pronta = foglio.tirata >= foglio.sogliaTirata
+        if (pronta != eraPronta) performHapticFeedback(
+            if (pronta) android.view.HapticFeedbackConstants.GESTURE_THRESHOLD_ACTIVATE
+            else android.view.HapticFeedbackConstants.GESTURE_THRESHOLD_DEACTIVATE,
+        )
+        return if (trazione == 0f) dy - prima else 0f
+    }
+
+    private fun rilasciaTirata(aggiungi: Boolean) {
+        trazione = 0f
+        foglio.paginaFantasma = false
+        if (aggiungi) alTiraPagina?.invoke()
+        val da = foglio.tirata
+        if (da <= 0f) return
+        ritorno = android.animation.ValueAnimator.ofFloat(da, 0f).apply {
+            duration = 240
+            interpolator = android.view.animation.PathInterpolator(0.05f, 0.7f, 0.1f, 1f)
+            addUpdateListener { foglio.tirata = it.animatedValue as Float }
+            start()
+        }
     }
 
     private fun centro(e: MotionEvent): Pair<Float, Float> {

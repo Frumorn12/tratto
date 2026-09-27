@@ -4,12 +4,15 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.DashPathEffect
 import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.RectF
 import android.graphics.RenderNode
 import android.view.View
+import androidx.core.content.res.ResourcesCompat
 import androidx.ink.rendering.android.canvas.CanvasStrokeRenderer
+import it.frumorn.tratto.R
 import it.frumorn.tratto.data.Penna
 import it.frumorn.tratto.data.Sfondo
 import it.frumorn.tratto.pdf.PdfSfondo
@@ -53,6 +56,19 @@ class FoglioView(context: Context) : View(context) {
     var colorePagina = Color.WHITE
     var coloreScrivania = Color.rgb(242, 242, 244)
     var coloreRighe = Color.rgb(217, 214, 236)
+    var coloreAccento = Color.rgb(101, 70, 243)
+
+    /**
+     * Pixel di cui il foglio e' tirato oltre la fine dell'ultima pagina: sotto compare una pagina
+     * tratteggiata, che diventa vera se si rilascia oltre [sogliaTirata].
+     */
+    var tirata = 0f
+        set(v) { field = v; invalidate() }
+    var sogliaTirata = 1f
+    /** Vero mentre il dito sta tirando: al rilascio la pagina tratteggiata sparisce subito. */
+    var paginaFantasma = false
+        set(v) { field = v; invalidate() }
+
     /** Tratti da non disegnare perche' li sta mostrando qualcun altro (es. il lazo mentre li sposta). */
     var nascosti: Set<Long> = emptySet()
         set(v) { field = v; cache.values.forEach { it.versione = -1 }; invalidate() }
@@ -68,6 +84,16 @@ class FoglioView(context: Context) : View(context) {
     private val pBitmap = Paint(Paint.FILTER_BITMAP_FLAG)
     private val rett = RectF()
     private val m = Matrix()
+    private val pFantasma = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE; strokeWidth = 1.6f * densita
+        pathEffect = DashPathEffect(floatArrayOf(10 * densita, 7 * densita), 0f)
+    }
+    private val pFantasmaPieno = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val pSegno = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 2f * densita; strokeCap = Paint.Cap.ROUND }
+    private val pTesto = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        textAlign = Paint.Align.CENTER; textSize = 15 * densita
+        typeface = runCatching { ResourcesCompat.getFont(context, R.font.manrope_semibold) }.getOrNull()
+    }
 
     private class CachePagina(val nodo: RenderNode) {
         var versione = -1
@@ -220,6 +246,8 @@ class FoglioView(context: Context) : View(context) {
     override fun onDraw(canvas: Canvas) {
         canvas.drawColor(coloreScrivania)
         val d = documento ?: return
+        val salvato = canvas.save()
+        if (tirata > 0f) canvas.translate(0f, -tirata)
         pCarta.color = colorePagina
         pRighe.color = coloreRighe
         pPunti.color = coloreRighe
@@ -243,6 +271,40 @@ class FoglioView(context: Context) : View(context) {
             if (p.caricata) disegnaTratti(canvas, p, sx, sy)
             canvas.restoreToCount(s)
         }
+        if (paginaFantasma && tirata > 0f) disegnaPaginaNuova(canvas, d)
+        canvas.restoreToCount(salvato)
+    }
+
+    /** La pagina tratteggiata che compare tirando oltre la fine della nota. */
+    private fun disegnaPaginaNuova(c: Canvas, d: Documento) {
+        val progresso = (tirata / sogliaTirata).coerceIn(0f, 1f)
+        val pronta = progresso >= 1f
+        val cima = ty + cimaPagina(d.pagine.size) * scala
+        val w = LARGHEZZA * scala
+        val h = (d.pagine.lastOrNull()?.pagina?.altezza ?: it.frumorn.tratto.data.Foglio.ALTEZZA) * scala
+        val r = 4f * densita
+        rett.set(tx, cima, tx + w, cima + h)
+        if (pronta) {
+            pFantasmaPieno.color = coloreAccento; pFantasmaPieno.alpha = 26
+            c.drawRoundRect(rett, r, r, pFantasmaPieno)
+        }
+        pFantasma.color = coloreAccento; pFantasma.alpha = (90 + 165 * progresso).toInt()
+        c.drawRoundRect(rett, r, r, pFantasma)
+        // Il segno "+" e la scritta stanno al centro della parte di pagina che si vede.
+        val basso = min(cima + h, height + tirata)
+        val cy = (cima + basso) / 2f - 10 * densita
+        val cx = tx + w / 2f
+        val raggio = 20 * densita
+        pSegno.color = coloreAccento; pSegno.alpha = pFantasma.alpha
+        c.save()
+        c.rotate(90f * progresso, cx, cy)
+        c.drawCircle(cx, cy, raggio, pSegno)
+        c.drawLine(cx - 0.45f * raggio, cy, cx + 0.45f * raggio, cy, pSegno)
+        c.drawLine(cx, cy - 0.45f * raggio, cx, cy + 0.45f * raggio, pSegno)
+        c.restore()
+        pTesto.color = coloreAccento; pTesto.alpha = pFantasma.alpha
+        val testo = if (pronta) "Rilascia per aggiungere una pagina" else "Continua a tirare per una pagina nuova"
+        c.drawText(testo, cx, cy + raggio + 26 * densita, pTesto)
     }
 
     private fun disegnaSfondo(c: Canvas, sfondo: Sfondo, sx: Float, sy: Float, altezza: Float) {

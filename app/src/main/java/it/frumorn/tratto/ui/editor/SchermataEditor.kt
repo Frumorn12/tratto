@@ -43,6 +43,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
@@ -229,6 +230,16 @@ private fun BarraSuperiore(stato: StatoApp, s: SessioneEditor, modifier: Modifie
     val context = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
     var menu by remember { mutableStateOf(false) }
+    var confermaEliminaPagina by remember { mutableStateOf(false) }
+    if (confermaEliminaPagina) {
+        AlertDialog(
+            onDismissRequest = { confermaEliminaPagina = false },
+            title = { Text("Eliminare la pagina ${s.pagina + 1}?") },
+            text = { Text("Se cambi idea puoi recuperarla con Annulla.") },
+            confirmButton = { TextButton({ s.eliminaPagina(); confermaEliminaPagina = false }) { Text("Elimina", color = MaterialTheme.colorScheme.error) } },
+            dismissButton = { TextButton({ confermaEliminaPagina = false }) { Text("Annulla") } },
+        )
+    }
     var inCorso by remember { mutableStateOf(false) }
     fun esporta(azione: suspend (it.frumorn.tratto.data.NotaInfo) -> Unit) {
         menu = false
@@ -273,6 +284,10 @@ private fun BarraSuperiore(stato: StatoApp, s: SessioneEditor, modifier: Modifie
                 BottoneIcona(R.drawable.ic_redo, "Ripeti", attivo = s.puoRipetere) { s.ripeti() }
                 VerticalDivider(Modifier.height(28.dp).padding(horizontal = 6.dp), color = MaterialTheme.colorScheme.outlineVariant)
                 BottoneIcona(R.drawable.ic_note_add, "Aggiungi pagina") { s.aggiungiPagina() }
+                BottoneIcona(R.drawable.ic_delete, "Elimina pagina", attivo = s.pagine > 1) {
+                    // Una pagina vuota se ne va subito; se c'e' qualcosa si chiede (si puo' comunque annullare).
+                    if (s.paginaVuota()) s.eliminaPagina() else confermaEliminaPagina = true
+                }
                 Box {
                     BottoneIcona(R.drawable.ic_more_vert, "Altro") { menu = true }
                     DropdownMenu(menu, { menu = false }, shape = MaterialTheme.shapes.medium) {

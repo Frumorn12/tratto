@@ -64,6 +64,7 @@ class SessioneEditor(private val stato: StatoApp, val id: String, context: Conte
         }
         vista.alCambioPagina = { pagina = it; ultimoScorrimento = System.currentTimeMillis() }
         vista.alTrattiFiniti = { p, nuovi -> calcola(p, nuovi) }
+        vista.alTiraPagina = { aggiungiPagina() }
         applicaColori()
     }
 
@@ -71,6 +72,7 @@ class SessioneEditor(private val stato: StatoApp, val id: String, context: Conte
         vista.foglio.colorePagina = carta
         vista.foglio.coloreScrivania = scrivania
         vista.foglio.coloreRighe = righe
+        vista.foglio.coloreAccento = if (scuro) 0xFFA491FA.toInt() else 0xFF6546F3.toInt()
         vista.foglio.invalidate()
     }
 
@@ -319,6 +321,12 @@ class SessioneEditor(private val stato: StatoApp, val id: String, context: Conte
     }
 
     fun paginaCorrente() = documento?.pagine?.getOrNull(vista.foglio.paginaCorrente())?.pagina
+
+    /** Vero se la pagina corrente non ha niente da perdere: niente tratti e niente PDF sotto. */
+    fun paginaVuota(): Boolean {
+        val p = documento?.pagine?.getOrNull(vista.foglio.paginaCorrente()) ?: return true
+        return p.caricata && p.tratti.isEmpty() && p.pagina.pdfPagina < 0
+    }
 
     /** Salvataggio immediato quando l'app va in secondo piano. */
     fun salvaOra() {
