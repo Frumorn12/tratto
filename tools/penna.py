@@ -10,6 +10,9 @@ Uso:
   penna.py onda X Y LARGHEZZA            onda con pressione che cresce
   penna.py doppioclic X Y                doppio clic del tasto in hover
   penna.py tap X Y
+  penna.py scrivi X Y ALTEZZA testo...   scrittura a mano (serve il pacchetto Hershey-Fonts)
+
+Opzioni per tratto: --pressione P (0..1), --tasto (tasto laterale premuto: gomma temporanea)
 """
 import math, struct, subprocess, sys, tempfile, os
 
@@ -52,29 +55,56 @@ def hover_in(s, x, y, dist=40):
 def hover_out(s):
     s.frame(ev(EV_KEY, BTN_TOOL_PEN, 0), 0.05)
 
-def stroke(s, punti, tilt=(0, 0)):
+def stroke(s, punti, tilt=(0, 0), tasto=False):
     """punti: lista di (x, y, pressione 0..1)."""
     x0, y0, p0 = punti[0]
     hover_in(s, x0, y0)
+    if tasto:
+        s.frame(ev(EV_KEY, BTN_STYLUS, 1), 0.03)
     s.frame(ev(EV_ABS, ABS_DISTANCE, 0) + ev(EV_KEY, BTN_TOUCH, 1) + pos(x0, y0)
             + ev(EV_ABS, ABS_PRESSURE, int(p0 * 4095)) + ev(EV_ABS, ABS_TILT_X, tilt[0]) + ev(EV_ABS, ABS_TILT_Y, tilt[1]))
     for x, y, p in punti[1:]:
         s.frame(pos(x, y) + ev(EV_ABS, ABS_PRESSURE, max(1, int(p * 4095))))
     s.frame(ev(EV_ABS, ABS_PRESSURE, 0) + ev(EV_KEY, BTN_TOUCH, 0), 0.02)
+    if tasto:
+        s.frame(ev(EV_KEY, BTN_STYLUS, 0), 0.02)
     hover_out(s)
 
 def interpola(a, b, n):
     return [(a[0] + (b[0] - a[0]) * i / n, a[1] + (b[1] - a[1]) * i / n) for i in range(n + 1)]
 
+def scrivi(s, X, Y, altezza, testo):
+    """Scrive testo in corsivo con un font a tratto singolo, come farebbe una mano."""
+    from HersheyFonts import HersheyFonts
+    f = HersheyFonts()
+    f.load_default_font("cursive")
+    f.normalize_rendering(altezza)
+    for i, tratto in enumerate(f.strokes_for_text(testo)):
+        pts = [(X + x, Y - y) for x, y in tratto]
+        seq = []
+        for a, b in zip(pts, pts[1:]):
+            seq += interpola(a, b, max(1, int(math.dist(a, b) / 4)))[:-1]
+        seq.append(pts[-1])
+        n = len(seq)
+        # Pressione che sale all'inizio, ondeggia e cala alla fine del tratto.
+        punti = [(x, y, min(1.0, 0.25 + 0.5 * math.sin(math.pi * k / max(1, n - 1)) + 0.12 * math.sin(k / 3 + i))) for k, (x, y) in enumerate(seq)]
+        stroke(s, punti, tilt=(22, -14))
+
 def main(argv):
     s = Script()
     cmd = argv[0]
+    opzioni = [a for a in argv[1:] if a.startswith("--")]
+    argv = [argv[0]] + [a for a in argv[1:] if not a.startswith("--") and not _valore_opzione(argv, a)]
+    pressione = float(_opzione(opzioni, argv, "--pressione", "0.6"))
     if cmd == "tratto":
         pts = [tuple(map(float, a.split(","))) for a in argv[1:]]
         seq = []
         for a, b in zip(pts, pts[1:]):
             seq += interpola(a, b, max(4, int(math.dist(a, b) / 6)))
-        stroke(s, [(x, y, 0.6) for x, y in seq])
+        stroke(s, [(x, y, pressione) for x, y in seq], tasto="--tasto" in opzioni)
+    elif cmd == "scrivi":
+        X, Y, H = map(float, argv[1:4])
+        scrivi(s, X, Y, H, " ".join(argv[4:]))
     elif cmd == "onda":
         X, Y, W = map(float, argv[1:4])
         n = int(W / 5)
@@ -93,6 +123,20 @@ def main(argv):
     else:
         print(__doc__); return 1
     s.run()
+
+_VALORI = {}
+
+def _valore_opzione(argv, a):
+    """Vero se [a] e' il valore di un'opzione (es. 0.3 dopo --pressione)."""
+    i = argv.index(a)
+    return i > 0 and argv[i - 1] == "--pressione"
+
+def _opzione(opzioni, argv, nome, predefinito):
+    import sys as _s
+    tutti = _s.argv[1:]
+    if nome in tutti:
+        return tutti[tutti.index(nome) + 1]
+    return predefinito
 
 if __name__ == "__main__":
     sys.exit(main(sys.argv[1:]))
