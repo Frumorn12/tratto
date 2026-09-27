@@ -25,6 +25,16 @@ android {
         }
     }
     buildFeatures { compose = true }
+
+    androidResources {
+        // PdfBox-Android porta circa 4,6 MB di asset (font, CMap, glyph list) che servono solo per
+        // leggere o scrivere testo. L'esportazione disegna solo tracciati, quindi non li includiamo.
+        // Se un giorno si usa PdfBox per il testo (estrazione, font), togliere questa riga.
+        ignoreAssetsPatterns += "!tom_roush"
+    }
+
+    // I test JVM usano PdfBox-Android, che chiama android.util.Log: senza questo gli stub lanciano eccezioni.
+    testOptions { unitTests.isReturnDefaultValues = true }
 }
 
 dependencies {
@@ -42,4 +52,9 @@ dependencies {
     implementation(libs.compose.ui)
     implementation(libs.compose.foundation)
     implementation(libs.compose.material3)
+    // Solo per l'esportazione in PDF. BouncyCastle serve solo ai PDF cifrati con certificato
+    // (PublicKeySecurityHandler): quelli con password usano javax.crypto e funzionano lo stesso.
+    implementation(libs.pdfbox.android) { exclude(group = "org.bouncycastle") }
+
+    testImplementation(libs.junit)
 }
