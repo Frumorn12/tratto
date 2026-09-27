@@ -6,13 +6,16 @@ import com.tom_roush.pdfbox.cos.COSDictionary
 import com.tom_roush.pdfbox.cos.COSName
 import com.tom_roush.pdfbox.cos.COSNull
 import com.tom_roush.pdfbox.cos.COSObject
+import com.tom_roush.pdfbox.multipdf.LayerUtility
 import com.tom_roush.pdfbox.pdmodel.PDDocument
 import com.tom_roush.pdfbox.pdmodel.PDPage
 import com.tom_roush.pdfbox.pdmodel.PDPageContentStream
 import com.tom_roush.pdfbox.pdmodel.PDPageTree
 import com.tom_roush.pdfbox.pdmodel.common.PDRectangle
 import com.tom_roush.pdfbox.pdmodel.graphics.blend.BlendMode
+import com.tom_roush.pdfbox.pdmodel.graphics.image.PDImageXObject
 import com.tom_roush.pdfbox.pdmodel.graphics.state.PDExtendedGraphicsState
+import com.tom_roush.pdfbox.util.Matrix
 import it.frumorn.tratto.data.Foglio
 import it.frumorn.tratto.data.Pagina
 import it.frumorn.tratto.data.Sfondo
@@ -23,6 +26,25 @@ import kotlin.math.abs
 
 /** Un tratto pronto per il PDF: lo stile e i contorni in unita' di pagina, [x0, y0, x1, y1, ...] per ognuno. */
 class TrattoPdf(val stile: StilePdf, val contorni: List<FloatArray>)
+
+/** Un oggetto della pagina (immagine o caselle di testo) pronto per il PDF. Sta sotto i tratti. */
+sealed interface OggettoPdf
+
+/**
+ * Immagine nel riquadro [x], [y], [larghezza], [altezza] in unita' di pagina. [crea] la mette nel
+ * documento (JPEG o senza perdita, lo decide chi la prepara) e puo' restituire null se non si legge.
+ */
+class ImmaginePdf(
+    val x: Float, val y: Float, val larghezza: Float, val altezza: Float,
+    val crea: (PDDocument) -> PDImageXObject?,
+) : OggettoPdf
+
+/**
+ * La pagina [indice] di un altro PDF, larga 1000 punti e alta [altezza] punti: un punto per unita' di
+ * pagina, con l'origine in basso a sinistra. Ci finiscono le caselle di testo, disegnate da Android
+ * come testo vero (selezionabile, con i caratteri incorporati), e la pagina si importa come form XObject.
+ */
+class LivelloPdf(val sorgente: PDDocument, val indice: Int, val altezza: Float) : OggettoPdf
 
 /**
  * Compone il PDF esportato con PdfBox. Non usa API Android (a parte i log di PdfBox), cosi' si prova
@@ -39,17 +61,20 @@ internal object ScrittorePdf {
      * dall'utente sono larghe come la prima pagina del PDF usata dalla nota.
      * Se [allegato] e' falso, [doc] e' vuoto e tutte le pagine sono A4 con il loro sfondo.
      *
-     * [tratti] viene chiamato una pagina alla volta, cosi' in memoria c'e' una pagina sola.
+     * [tratti] e [oggetti] vengono chiamati una pagina alla volta, cosi' in memoria c'e' una pagina sola.
+     * Gli oggetti vanno sotto i tratti, nell'ordine dato.
      */
     fun componi(
         doc: PDDocument,
         allegato: Boolean,
         pagine: List<Pagina>,
         titolo: String,
+        oggetti: (Pagina) -> List<OggettoPdf> = { emptyList() },
         tratti: (Pagina) -> List<TrattoPdf>,
     ) {
         val originali = if (allegato) staccaPagine(doc) else emptyList()
         val stati = HashMap<StilePdf, PDExtendedGraphicsState>()
+        val livelli = LayerUtility(doc)
 
         // Larghezza delle pagine nuove: quella (visibile) della prima pagina del PDF usata dalla nota.
         val riferimento = pagine.firstNotNullOfOrNull { originali.getOrNull(it.pdfPagina) } ?: originali.firstOrNull()
@@ -71,7 +96,8 @@ internal object ScrittorePdf {
                 val pagina = if (usate.add(p.pdfPagina)) originale else duplica(stampi.getValue(p.pdfPagina))
                 doc.addPage(pagina)
                 val lista = tratti(p)
-                if (lista.isEmpty()) continue
+                val sotto = oggetti(p)
+                if (lista.isEmpty() && sotto.isEmpty()) continue
                 val box = pagina.cropBox
                 val t = Trasformazione.perPagina(box.lowerLeftX, box.lowerLeftY, box.upperRightX, box.upperRightY, pagina.rotation)
                 // PdfBox allunga sul posto l'array /Contents: se fosse condiviso con altre pagine, i
@@ -80,6 +106,7 @@ internal object ScrittorePdf {
                 // APPEND + resetContext: il contenuto originale finisce tra q e Q e il nostro parte
                 // dallo stato grafico iniziale, qualunque cosa lasci in giro la pagina.
                 PDPageContentStream(doc, pagina, PDPageContentStream.AppendMode.APPEND, true, true).use { cs ->
+                    disegnaOggetti(cs, doc, livelli, sotto, t)
                     disegnaTratti(cs, lista, t, stati)
                 }
             } else {
@@ -90,6 +117,7 @@ internal object ScrittorePdf {
                 val t = Trasformazione.perPagina(0f, 0f, larghezza, altezza)
                 PDPageContentStream(doc, pagina).use { cs ->
                     disegnaSfondo(cs, p.sfondo, p.altezza, t)
+                    disegnaOggetti(cs, doc, livelli, oggetti(p), t)
                     disegnaTratti(cs, tratti(p), t, stati)
                 }
             }
@@ -223,6 +251,31 @@ internal object ScrittorePdf {
             }
         }
         tr.traccia()
+    }
+
+    /**
+     * Immagini e livelli di testo, ognuno con la sua matrice: un'immagine occupa il quadrato unitario
+     * (origine in basso a sinistra), un livello ha y verso l'alto e l'origine in basso.
+     */
+    private fun disegnaOggetti(cs: PDPageContentStream, doc: PDDocument, livelli: LayerUtility, oggetti: List<OggettoPdf>, t: Trasformazione) {
+        for (o in oggetti) {
+            when (o) {
+                is ImmaginePdf -> {
+                    val img = o.crea(doc) ?: continue
+                    val w = o.larghezza; val h = o.altezza
+                    // (0, 0) dell'immagine e' l'angolo in basso a sinistra del riquadro: (x, y + h) in Tratto.
+                    cs.drawImage(img, Matrix(t.a * w, t.b * w, -t.c * h, -t.d * h, t.x(o.x, o.y + h), t.y(o.x, o.y + h)))
+                }
+                is LivelloPdf -> {
+                    val form = livelli.importPageAsForm(o.sorgente, o.indice)
+                    cs.saveGraphicsState()
+                    // (X, Y) del livello e' (X, altezza - Y) in Tratto.
+                    cs.transform(Matrix(t.a, t.b, -t.c, -t.d, t.x(0f, o.altezza), t.y(0f, o.altezza)))
+                    cs.drawForm(form)
+                    cs.restoreGraphicsState()
+                }
+            }
+        }
     }
 
     private fun disegnaTratti(

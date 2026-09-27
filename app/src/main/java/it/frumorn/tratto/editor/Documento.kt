@@ -160,6 +160,12 @@ class Documento(private val archivio: Archivio, info: NotaInfo) {
 
     fun nuovoIdTratto(): Long = prossimoId.incrementAndGet()
 
+    /** File di un'immagine della nota (percorso relativo salvato nell'oggetto). */
+    fun fileImmagine(file: String) = archivio.fileImmagine(info.id, file)
+
+    /** Salva nella nota un'immagine nuova: vedi [Archivio.salvaImmagine]. Da chiamare fuori dal thread principale. */
+    fun salvaImmagine(estensione: String, scrivi: (java.io.OutputStream) -> Unit): String = archivio.salvaImmagine(info.id, estensione, scrivi)
+
     fun esegui(m: Modifica) {
         applica(m, inverso = false)
         indietro.addLast(m)

@@ -7,6 +7,7 @@ import android.graphics.Matrix
 import android.graphics.Paint
 import androidx.ink.rendering.android.canvas.CanvasStrokeRenderer
 import it.frumorn.tratto.data.Archivio
+import it.frumorn.tratto.data.Oggetto
 import it.frumorn.tratto.data.Sfondo
 import it.frumorn.tratto.pdf.PdfSfondo
 import java.io.File
@@ -34,6 +35,9 @@ object Anteprima {
         val renderer = CanvasStrokeRenderer.create()
         c.save()
         c.concat(m)
+        // Immagini e caselle di testo sotto i tratti, come nell'editor.
+        val oggetti = synchronized(p) { ArrayList(p.oggetti) }
+        disegnaOggetti(c, oggetti, w.toFloat()) { doc.fileImmagine(it) }
         synchronized(p) {
             for (passata in 0..1) for (t in p.tratti) {
                 if ((t.penna == it.frumorn.tratto.data.Penna.EVIDENZIATORE) != (passata == 0)) continue
@@ -46,6 +50,29 @@ object Anteprima {
         tmp.outputStream().use { bmp.compress(Bitmap.CompressFormat.WEBP_LOSSY, 82, it) }
         tmp.renameTo(file)
         bmp.recycle()
+    }
+
+    /**
+     * Disegna gli oggetti su un canvas qualsiasi (anche senza GPU) gia' in unita' di pagina, per una
+     * pagina larga [pxPagina] pixel: le immagini si decodificano adesso alla grandezza giusta e il
+     * testo si impagina da capo, perche' si e' fuori dal thread principale.
+     */
+    fun disegnaOggetti(c: Canvas, oggetti: List<Oggetto>, pxPagina: Float, file: (String) -> File) {
+        if (oggetti.isEmpty()) return
+        val decodificate = ArrayList<Bitmap>()
+        try {
+            DisegnoOggetti.disegna(
+                c, oggetti,
+                immagine = { im ->
+                    ImmaginiEditor.decodifica(file(im.file), DisegnoOggetti.pixelPer(im.larghezza, pxPagina), hardware = false)
+                        ?.also { decodificate += it }
+                },
+                impaginato = { Impaginazione.impagina(it) },
+            )
+        } finally {
+            // Su un canvas accelerato (RenderNode) la bitmap serve fino al disegno vero: la libera il GC.
+            if (!c.isHardwareAccelerated) decodificate.forEach { it.recycle() }
+        }
     }
 
     private fun disegnaModello(c: Canvas, sfondo: Sfondo, s: Float, altezza: Float) {
