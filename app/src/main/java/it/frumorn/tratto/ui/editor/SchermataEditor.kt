@@ -82,6 +82,9 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import it.frumorn.tratto.R
 import it.frumorn.tratto.data.Penna
 import it.frumorn.tratto.data.Sfondo
@@ -423,17 +426,24 @@ private fun OpzioniPenna(s: SessioneEditor, st: StatoStrumenti) {
     }
 }
 
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 fun GrigliaColori(colori: List<Int>, corrente: Int, onScelta: (Int) -> Unit) {
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    // Due righe da sei: tutti i colori restano dentro il pannello.
+    androidx.compose.foundation.layout.FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+        maxItemsInEachRow = 6,
+    ) {
         colori.forEach { c ->
             val sel = c == corrente
             val bordo by animateDpAsState(if (sel) 3.dp else 1.dp, tween(160), label = "bordo")
             val interazione = remember { MutableInteractionSource() }
             Box(
-                Modifier.size(28.dp).premibile(interazione).clip(CircleShape).background(Color(c))
+                Modifier.size(32.dp).premibile(interazione).clip(CircleShape).background(Color(c))
                     .border(bordo, if (sel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline.copy(alpha = 0.4f), CircleShape)
-                    .clickable(interazione, null) { onScelta(c) },
+                    .clickable(interazione, null, onClickLabel = StatoStrumenti.nomeColore(c)) { onScelta(c) }
+                    .semantics { contentDescription = StatoStrumenti.nomeColore(c); selected = sel },
             )
         }
     }

@@ -36,6 +36,11 @@ data class StatoStrumenti(
             0xFF1E9E5A, 0xFFF2B705, 0xFFFF7A1A, 0xFFE0354B, 0xFFC0399E, 0xFF8A5A3C,
         ).map { it.toInt() }
 
+        /** Nomi dei colori della tavolozza, per TalkBack. */
+        val NOMI_COLORI = listOf("Nero", "Grigio", "Bianco", "Viola", "Blu", "Turchese", "Verde", "Giallo", "Arancione", "Rosso", "Magenta", "Marrone")
+
+        fun nomeColore(c: Int): String = TAVOLOZZA.indexOf(c).let { if (it >= 0) NOMI_COLORI[it] else "Colore personalizzato" }
+
         val SPESSORI_EVIDENZIATORE = 12f..48f
         val SPESSORI = 1f..24f
     }
