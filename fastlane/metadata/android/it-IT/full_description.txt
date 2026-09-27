@@ -1,0 +1,32 @@
+<p><b>Tratto</b> è un'app di note a mano per tablet Android con penna attiva (S Pen, Wacom EMR, USI). Scrivi come su carta: l'inchiostro segue la punta senza ritardo, sente la pressione e l'inclinazione, e le note restano sul tablet in file semplici e documentati.</p>
+
+<p><b>Scrittura</b></p>
+<ul>
+<li>Stilografica con pennino a 45°, penna, matita, evidenziatore (passa sotto l'inchiostro) e pennello</li>
+<li>Pressione e inclinazione della penna, sensibilità regolabile</li>
+<li>Gomma per tratti interi o parziale, anche col tasto della penna</li>
+<li>Lazo: sposta, ridimensiona, ricolora, copia e incolla tra note</li>
+<li>Il palmo appoggiato viene ignorato; due dita per scorrere e ingrandire</li>
+<li>Pagine bianche, a righe, a quadretti o a puntini; tema chiaro e scuro</li>
+</ul>
+
+<p><b>Veloce</b></p>
+<ul>
+<li>Doppio clic sul tasto della penna: nuova nota all'istante</li>
+<li>Riquadro nelle impostazioni rapide e scorciatoie sull'icona</li>
+<li>Avvio in meno di mezzo secondo</li>
+</ul>
+
+<p><b>PDF</b></p>
+<ul>
+<li>Apri o condividi un PDF verso Tratto e scrivici sopra</li>
+<li>Esporta in PDF vettoriale o una pagina come immagine</li>
+</ul>
+
+<p><b>Backup</b></p>
+<ul>
+<li>Tutte le note in un unico file .tratto, da ripristinare unendo o sostituendo</li>
+<li>Backup automatico in una cartella a tua scelta (anche Nextcloud o Syncthing), solo su Wi‑Fi o in carica se preferisci</li>
+</ul>
+
+<p>Niente account, niente pubblicità, niente statistiche. Questa è la versione libera: la versione completa, dal repository F-Droid dell'autore, aggiunge trascrizione della scrittura, note matematiche e backup su Google Drive, che dipendono da librerie Google non libere.</p>

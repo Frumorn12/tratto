@@ -1,0 +1,32 @@
+<p><b>Tratto</b> ("stroke", as in a pen stroke) is a handwriting notes app for Android tablets with an active stylus (S Pen, Wacom EMR, USI). Ink follows the pen tip with no lag, reacts to pressure and tilt, and your notes stay on the tablet in simple, documented files. The interface is in Italian.</p>
+
+<p><b>Writing</b></p>
+<ul>
+<li>Fountain pen with a 45° nib, ballpoint, pencil, highlighter (drawn under the ink) and brush</li>
+<li>Pen pressure and tilt, adjustable sensitivity</li>
+<li>Stroke or partial eraser, also with the pen button</li>
+<li>Lasso: move, resize, recolor, copy and paste across notes</li>
+<li>Palm rejection; two fingers to scroll and zoom</li>
+<li>Blank, ruled, grid or dotted pages; light and dark theme</li>
+</ul>
+
+<p><b>Fast</b></p>
+<ul>
+<li>Double-click the pen button: a new note opens instantly</li>
+<li>Quick settings tile and launcher shortcuts</li>
+<li>Cold start in under half a second</li>
+</ul>
+
+<p><b>PDF</b></p>
+<ul>
+<li>Open or share a PDF to Tratto and write on it</li>
+<li>Export as vector PDF, or a page as an image</li>
+</ul>
+
+<p><b>Backup</b></p>
+<ul>
+<li>All notes in a single .tratto file, restorable by merging or replacing</li>
+<li>Automatic backup to a folder of your choice (Nextcloud or Syncthing work too), optionally only on Wi‑Fi or while charging</li>
+</ul>
+
+<p>No accounts, no ads, no analytics. This is the free build: the full build from the author's F-Droid repository adds handwriting transcription, handwritten math and Google Drive backup, which rely on non-free Google libraries.</p>
