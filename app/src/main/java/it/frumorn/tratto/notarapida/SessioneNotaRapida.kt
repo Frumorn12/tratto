@@ -132,6 +132,7 @@ class SessioneNotaRapida(context: Context, private val archivio: Archivio, priva
                 return@launch
             }
             if (chiusa) return@launch
+            suggerimento.conferma(p, r.riquadro)
             r.tratti.forEach { t -> p.stroke(t) }
             documento.esegui(Modifica(p, emptyList(), r.tratti))
             vista.ridisegna()

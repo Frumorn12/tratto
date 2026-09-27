@@ -7,13 +7,18 @@ import it.frumorn.tratto.scrittura.BellaScrittura
 import it.frumorn.tratto.scrittura.Stile
 import it.frumorn.tratto.scrittura.Trascrittore
 import kotlinx.coroutines.CancellationException
+import kotlin.math.abs
 
 /**
  * Il risultato di una nota matematica: l'espressione letta (per esempio "3×(4+5)", "(1+2)/3",
  * "2^10"), il valore scritto all'italiana ("27", "0,333333") e i tratti da aggiungere alla
  * pagina, a destra dell'uguale.
  */
-data class Risultato(val espressione: String, val valore: String, val tratti: List<Tratto>)
+data class Risultato(val espressione: String, val valore: String, val tratti: List<Tratto>) {
+    /** Riquadro della formula letta (uguale compreso), in coordinate di pagina: [sinistra, alto, destra, basso]. */
+    var riquadro: FloatArray = FloatArray(4)
+        internal set
+}
 
 /**
  * Un calcolo riconosciuto mentre si scrive, da proporre prima che lo si chiuda con l'uguale (o se
@@ -31,7 +36,13 @@ class Suggerimento internal constructor(
     val fine: Float get() = if (conUguale) raccolta.uguale.dx else raccolta.forme.maxOf { it.dx }
     val asse: Float get() = raccolta.uguale.asse
     val altezza: Float get() = raccolta.h
+
+    /** Riquadro della formula (e dell'uguale, se c'e'), in coordinate di pagina: [sinistra, alto, destra, basso]. */
+    val riquadro: FloatArray get() = riquadroDi(if (conUguale) raccolta.forme + raccolta.uguale.forme else raccolta.forme)
 }
+
+internal fun riquadroDi(forme: List<Forma>): FloatArray =
+    floatArrayOf(forme.minOf { it.sx }, forme.minOf { it.alto }, forme.maxOf { it.dx }, forme.maxOf { it.basso })
 
 /**
  * Note matematiche: quando si scrive un'espressione seguita da "=", si legge l'espressione, la
@@ -106,23 +117,31 @@ object Calcolatore {
         if (ultimo.penna == Penna.EVIDENZIATORE || ultimo.quanti < 2 || risultato(ultimo)) return null
         val pagina = tratti.filter { it.penna != Penna.EVIDENZIATORE && it.quanti > 0 }.map { Forma(it) }
         val f = pagina.firstOrNull { it.id == ultimo.id } ?: return null
-        val h0 = maxOf(f.altezza, 12f)
+        // Altezza di riferimento: quella dei simboli vicini, se l'ultimo tratto e' un trattino.
+        val h0 = maxOf(f.altezza, pagina.filter { it.dx >= f.sx - 150f && it.sx <= f.dx && abs(it.cy - f.cy) <= 60f && !it.piatto(12f) }.maxOfOrNull { it.altezza } ?: 0f, 12f)
         // Un risultato gia' scritto su questa riga, a destra: il calcolo e' fatto.
         if (pagina.any { risultato(it.tratto) && it.sx > f.sx && it.alto <= f.basso + 0.5f * h0 && it.basso >= f.alto - 0.5f * h0 }) return null
         // Se l'ultimo tratto chiude un uguale (non riconosciuto come formula), si parte da quello;
         // se no da un uguale immaginario subito a destra dell'ultimo tratto, sul suo asse.
         val partner = if (RilevaUguale.barra(f)) pagina.lastOrNull { it.id != f.id && RilevaUguale.dueTratti(it, f, h0) } else null
         val u = if (partner != null) Uguale(listOf(partner, f)) else {
-            val x = f.dx + 0.25f * h0
+            // L'asse della riga dai simboli vicini all'ultimo tratto, non dal tratto stesso: la
+            // barretta in alto di un 7 o un esponente lo sposterebbero.
+            val riga = pagina.filter {
+                !it.piatto(h0) && it.dx >= f.sx - 4f * h0 && it.sx <= f.dx + 0.5f * h0 && it.basso >= f.alto - 0.5f * h0 && it.alto <= f.basso + 0.5f * h0
+            }
+            val cifre = riga.filter { it.altezza >= 0.5f * riga.maxOf { r -> r.altezza } }
+            val asse = if (cifre.isEmpty()) f.cy else mediana(cifre.map { it.cy })
+            val x = maxOf(f.dx, riga.maxOfOrNull { it.dx } ?: f.dx) + 0.25f * h0
             val barra = FloatArray(2 * Tratto.CAMPI).also { p ->
-                p[0] = x; p[1] = f.cy; p[2] = 0.5f; p[3] = -1f; p[4] = -1f
-                p[Tratto.CAMPI] = x + 0.5f * h0; p[Tratto.CAMPI + 1] = f.cy; p[Tratto.CAMPI + 2] = 0.5f; p[Tratto.CAMPI + 3] = -1f; p[Tratto.CAMPI + 4] = -1f
+                p[0] = x; p[1] = asse; p[2] = 0.5f; p[3] = -1f; p[4] = -1f
+                p[Tratto.CAMPI] = x + 0.5f * h0; p[Tratto.CAMPI + 1] = asse; p[Tratto.CAMPI + 2] = 0.5f; p[Tratto.CAMPI + 3] = -1f; p[Tratto.CAMPI + 4] = -1f
             }
             Uguale(listOf(Forma(Tratto(-1L, ultimo.penna, ultimo.colore, ultimo.spessore, barra))))
         }
         val raccolta = Raccoglitore.raccogli(pagina, u) ?: return null
         // L'ultimo tratto deve far parte della formula (o dell'uguale): un segno staccato altrove no.
-        if (partner == null && raccolta.forme.none { it.id == f.id }) return null
+        if (partner == null && raccolta.forme.none { it.id == f.id || sovrapposizioneX(it, f) > 0f && distanzaY(it, f) <= 0.3f * raccolta.h }) return null
         val riga = Struttura.analizza(raccolta.forme, raccolta.h)
         if (Lettura.banale(riga) || Struttura.ambigua(riga)) return null
         val formula = Lettura.leggi(riga, lettore) ?: return null
@@ -215,6 +234,7 @@ object Calcolatore {
         val valore = formula.nodo.valuta() ?: return null
         val testo = Numero.formatta(valore)
         return Risultato(formula.nodo.stampa(), testo, scrivi(testo, riga, raccolta, stile, idNuovo))
+            .also { it.riquadro = riquadroDi(raccolta.forme + raccolta.uguale.forme) }
     }
 
     /**

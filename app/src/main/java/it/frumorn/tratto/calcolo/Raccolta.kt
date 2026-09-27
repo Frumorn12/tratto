@@ -58,7 +58,7 @@ internal object Raccoglitore {
             for (c in altri) {
                 if (c in scelti || c.cx < sinistra - 0.3f * h || c.cx > u.sx || c.altezza > 3f * h) continue
                 val apice = apice(c, scelti, apici, asse, h)
-                if (apice || segnetto(c, asse, h) || barraRadice(c, scelti, h)) {
+                if (apice || segnetto(c, asse, h) || barraRadice(c, scelti, h) || parteDi(c, scelti, h)) {
                     scelti += c
                     if (apice) apici += c
                     cambiato = true
@@ -261,6 +261,19 @@ internal object Raccoglitore {
             } else {
                 s.altezza >= 0.5f * h && c.sx >= s.cx && c.sx <= s.dx + 0.8f * h && c.cy < s.alto + 0.35f * s.altezza
             }
+        }
+    }
+
+    /**
+     * Un pezzo di un simbolo gia' preso scritto in un tratto a parte, che tocca il simbolo: la
+     * barretta in alto del 7 o il cappello del 5 (senza, il 7 si legge 1). Una barra di frazione
+     * non tocca le cifre sopra e sotto, quindi non passa di qui.
+     */
+    private fun parteDi(c: Forma, scelti: Set<Forma>, h: Float): Boolean {
+        if (c.larghezza > 1.2f * h || c.altezza > 1.2f * h) return false
+        return scelti.any { s ->
+            !s.piatto(h) && sovrapposizioneX(s, c) > 0.3f * minOf(s.larghezza, c.larghezza).coerceAtLeast(1f) &&
+                c.basso >= s.alto - 0.05f * h && c.alto <= s.basso + 0.05f * h
         }
     }
 

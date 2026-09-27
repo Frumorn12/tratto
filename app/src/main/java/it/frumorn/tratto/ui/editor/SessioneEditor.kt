@@ -282,6 +282,7 @@ class SessioneEditor(private val stato: StatoApp, val id: String, context: Conte
                 return@launch
             }
             if (chiusa || d.pagine.none { it === p }) return@launch
+            suggerimento.conferma(p, r.riquadro)
             r.tratti.forEach { t -> p.stroke(t) }
             d.esegui(it.frumorn.tratto.editor.Modifica(p, emptyList(), r.tratti))
             vista.ridisegna()

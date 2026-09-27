@@ -680,4 +680,33 @@ class CalcolatoreTest {
         q.parole("ciao", 100f, BASE)
         assertNull(Calcolatore.suggerisci(q.tratti, q.tratti.last(), LettoreFinto(q)))
     }
+    @Test
+    fun formuleLunghe() {
+        // Righe lunghe scritte di seguito: tutta la formula deve arrivare al lettore.
+        val casi = listOf(
+            "(12+8)x3-4:2+5" to "63",
+            "3,5x(2+4)-7:(1+1)" to "17,5",
+            "1+2+3+4+5+6+7+8+9+10" to "55",
+            "((2+3)x(4+5)-6):(7-4)" to "13",
+            "1234567+7654321" to "8888888",
+        )
+        for (stile in Stile.entries) for ((testo, atteso) in casi) {
+            Calcolatore.azzera()
+            val q = Quaderno(stile)
+            val (_, uguale) = formula(q, testo, x = 40f)
+            assertEquals("$stile $testo", atteso, chiudi(q, uguale)?.valore)
+        }
+    }
+
+    @Test
+    fun potenzaInMezzoAUnaFormulaLunga() {
+        val q = Quaderno()
+        val h = q.hCifre
+        // 100 - 2⁵ + (4+6)x2 = 88
+        var x = q.scrivi("100-2", 40f, BASE)
+        x = q.scrivi("5", x + 0.05f * h, BASE - 0.55f * h, scala = 0.6f)
+        x = q.scrivi("+(4+6)x2", x + 0.15f * h, BASE)
+        val uguale = q.uguale(x + 0.3f * h, q.asse(BASE))
+        assertEquals("88", chiudi(q, uguale)?.valore)
+    }
 }
