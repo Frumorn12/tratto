@@ -57,7 +57,11 @@ class SessioneEditor(private val stato: StatoApp, val id: String, context: Conte
         vista.strumenti = strumenti
         vista.disegnaConDita = stato.preferenze.disegnaConDita
         vista.alTratto = { aggiornaStato(); programmaSalvataggio() }
-        vista.alCambioSelezione = { selezione = it }
+        vista.alCambioSelezione = {
+            selezione = it
+            // Senza selezione il pannello della trascrizione non ha piu' senso.
+            if (!it && trascrizione !is Trascrizione.InCorso) trascrizione = null
+        }
         vista.alCambioPagina = { pagina = it; ultimoScorrimento = System.currentTimeMillis() }
         applicaColori()
     }
