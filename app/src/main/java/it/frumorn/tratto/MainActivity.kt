@@ -13,6 +13,7 @@ import it.frumorn.tratto.data.DoppioClic
 import it.frumorn.tratto.data.Preferenze
 import it.frumorn.tratto.editor.TastoPenna
 import it.frumorn.tratto.ui.App
+import it.frumorn.tratto.ui.Schermata
 import it.frumorn.tratto.ui.StatoApp
 import it.frumorn.tratto.ui.editor.SessioneEditor
 import it.frumorn.tratto.ui.theme.TrattoTheme
@@ -45,6 +46,8 @@ class MainActivity : ComponentActivity() {
         if (i?.component?.className?.endsWith(".NuovaNota") == true) { stato.nuovaNota(origine = "penna"); return }
         when (i?.action) {
             AZIONE_NUOVA_NOTA, Intent.ACTION_ASSIST, Intent.ACTION_CREATE_NOTE -> stato.nuovaNota(origine = "penna")
+            // "Apri in Tratto" dalla nota rapida: la nota e' gia' salvata, si apre nell'editor.
+            AZIONE_APRI_NOTA -> i.getStringExtra(EXTRA_NOTA)?.let { stato.schermata = Schermata.Editor(it, origine = "penna") }
             Intent.ACTION_VIEW -> i.data?.let { importaSePdf(it, i.type) }
             Intent.ACTION_SEND -> IntentCompat.getParcelableExtra(i, Intent.EXTRA_STREAM, Uri::class.java)?.let { importaSePdf(it, i.type) }
         }
@@ -81,5 +84,7 @@ class MainActivity : ComponentActivity() {
 
     companion object {
         const val AZIONE_NUOVA_NOTA = "it.frumorn.tratto.NUOVA_NOTA"
+        const val AZIONE_APRI_NOTA = "it.frumorn.tratto.APRI_NOTA"
+        const val EXTRA_NOTA = "it.frumorn.tratto.extra.NOTA"
     }
 }

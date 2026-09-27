@@ -70,6 +70,15 @@ class Archivio(
         return info
     }
 
+    /**
+     * Mette nell'indice una nota preparata altrove, con il suo id: la nota rapida esiste solo in
+     * memoria finche' non si scrive il primo tratto. Le pagine le salva poi il suo Documento.
+     */
+    fun aggiungiNota(info: NotaInfo) {
+        _note.update { l -> listOf(info) + l.filter { it.id != info.id } }
+        salvaIndice()
+    }
+
     /** Crea una nota a partire da un PDF: una pagina di Tratto per ogni pagina del PDF. */
     fun notaDaPdf(titolo: String, cartellaId: String?, copiaPdf: (File) -> Unit, pagine: List<Pair<Float, Float>>): NotaInfo {
         val ora = System.currentTimeMillis()

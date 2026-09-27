@@ -9,6 +9,15 @@
         <item name="android:windowSplashScreenBackground">@color/sfondo</item>
         <item name="android:windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>
     </style>
+    <!-- Nota rapida: finestra trasparente sopra l'app in primo piano. Velo, foglietto e animazioni
+         li disegna Compose; eredita chiaro o scuro da Tema.Tratto. -->
+    <style name="Tema.Tratto.NotaRapida">
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:backgroundDimEnabled">false</item>
+        <item name="android:windowAnimationStyle">@null</item>
+    </style>
     <color name="sfondo">#FFFFFF</color>
     <color name="icona_sfondo">#FFFFFF</color>
 </resources>

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Servizio di accessibilita' della nota rapida: chiede solo il pulsante Accessibilita'.
+     Nessun tipo di evento, niente contenuto delle finestre, niente tasti ne' gesti. -->
+<accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:accessibilityFeedbackType="feedbackGeneric"
+    android:accessibilityFlags="flagRequestAccessibilityButton"
+    android:canRetrieveWindowContent="false"
+    android:isAccessibilityTool="false"
+    android:summary="@string/servizio_nota_rapida_riassunto"
+    android:description="@string/servizio_nota_rapida_descrizione" />

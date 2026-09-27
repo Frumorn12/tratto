@@ -71,6 +71,9 @@ fun Impostazioni(stato: StatoApp) {
             }
             VoceInterruttore("Scrivi anche con il dito", "Se spento, il dito serve solo a scorrere e zoomare", p.disegnaConDita) { p.impostaDita(it) }
 
+            Sezione("Nota rapida")
+            SezioneNotaRapida()
+
             Sezione("Pagine")
             Voce("Pagina delle note nuove", null) {
                 Scelta(listOf(Sfondo.BIANCO to "Bianca", Sfondo.RIGHE to "Righe", Sfondo.QUADRETTI to "Quadretti", Sfondo.PUNTINI to "Puntini"), p.sfondoPredefinito) { p.impostaSfondo(it) }
@@ -90,6 +93,7 @@ fun Impostazioni(stato: StatoApp) {
                 "Per aprire una nota nuova da fuori Tratto:\n" +
                     "• aggiungi il riquadro «Nuova nota» nelle impostazioni rapide;\n" +
                     "• tieni premuta l'icona di Tratto e trascina «Nuova nota» sulla Home;\n" +
+                    "• per scrivere al volo sopra qualsiasi app c'è la nota rapida, con il pulsante Accessibilità;\n" +
                     "• in Lawnchair: Impostazioni Home › Gesti › Doppio tocco › App › Tratto (Nuova nota).",
                 style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
