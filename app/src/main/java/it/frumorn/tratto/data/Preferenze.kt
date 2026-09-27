@@ -34,6 +34,9 @@ class Preferenze(context: Context) {
     /** Stile con cui la "bella scrittura" riscrive il testo trascritto. */
     var stileBellaScrittura by mutableStateOf(runCatching { Stile.valueOf(sp.getString("bellaScrittura", null)!!) }.getOrDefault(Stile.CORSIVO))
         private set
+    /** Note matematiche: dopo "=" si calcola l'espressione scritta a mano e si scrive il risultato. */
+    var calcoliAutomatici by mutableStateOf(sp.getBoolean("calcoli", true))
+        private set
 
     fun impostaTema(v: Tema) { tema = v; sp.edit { putString("tema", v.name) }; applicaTema(v) }
 
@@ -57,6 +60,7 @@ class Preferenze(context: Context) {
     fun impostaDoppioClic(v: DoppioClic) { doppioClic = v; sp.edit { putString("doppioClic", v.name) } }
     fun impostaSfondo(v: Sfondo) { sfondoPredefinito = v; sp.edit { putString("sfondo", v.name) } }
     fun impostaStileBellaScrittura(v: Stile) { stileBellaScrittura = v; sp.edit { putString("bellaScrittura", v.name) } }
+    fun impostaCalcoliAutomatici(v: Boolean) { calcoliAutomatici = v; sp.edit { putBoolean("calcoli", v) } }
 
     /** Ultimi strumenti usati, cosi' una nota nuova riparte con la stessa penna. */
     fun strumenti(): StatoStrumenti {
