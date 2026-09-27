@@ -2,6 +2,7 @@
 <resources>
     <string name="app_name">Tratto</string>
     <string name="nuova_nota">Nuova nota</string>
+    <string name="nota_rapida">Nota rapida</string>
     <string name="servizio_nota_rapida">Nota rapida di Tratto</string>
     <string name="servizio_nota_rapida_riassunto">Un foglietto per scrivere al volo sopra qualsiasi app</string>
     <string name="servizio_nota_rapida_descrizione">Serve solo ad aprire la nota rapida di Tratto quando tocchi il pulsante Accessibilità o usi la scorciatoia dei tasti del volume. Non legge lo schermo, non osserva quello che scrivi o tocchi e non raccoglie né invia dati.</string>

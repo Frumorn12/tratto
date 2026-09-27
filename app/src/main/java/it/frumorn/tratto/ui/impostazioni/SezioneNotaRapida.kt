@@ -62,7 +62,8 @@ fun SezioneNotaRapida() {
         )
     }
     Text(
-        "Per aprirla da qualsiasi app, in Accessibilità attiva «${context.getString(R.string.servizio_nota_rapida)}» e la sua scorciatoia: " +
+        "Il modo più semplice: aggiungi il riquadro «Nota rapida» alle impostazioni rapide (tendina in alto, matita per modificare). " +
+            "In alternativa, in Accessibilità attiva «${context.getString(R.string.servizio_nota_rapida)}» e la sua scorciatoia: " +
             "il pulsante Accessibilità (un pulsante mobile sullo schermo) o i due tasti del volume tenuti premuti. Il servizio non legge lo schermo.\n" +
             "Il doppio clic del tasto della penna funziona solo dentro Tratto: nelle altre app Android lo tiene per sé, " +
             "e ascoltare la penna da fuori la bloccherebbe mentre scrivi.",

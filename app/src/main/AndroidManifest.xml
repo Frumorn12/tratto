@@ -100,6 +100,18 @@
             <meta-data android:name="android.service.quicksettings.ACTIVE_TILE" android:value="false" />
         </service>
 
+        <service
+            android:name=".ingressi.TileNotaRapida"
+            android:exported="true"
+            android:icon="@drawable/ic_draw"
+            android:label="@string/nota_rapida"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+            <meta-data android:name="android.service.quicksettings.ACTIVE_TILE" android:value="false" />
+        </service>
+
         <!-- File temporanei da condividere (PDF e immagini esportati). -->
         <provider
             android:name="androidx.core.content.FileProvider"
