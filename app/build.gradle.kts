@@ -55,6 +55,9 @@ dependencies {
     // Solo per l'esportazione in PDF. BouncyCastle serve solo ai PDF cifrati con certificato
     // (PublicKeySecurityHandler): quelli con password usano javax.crypto e funzionano lo stesso.
     implementation(libs.pdfbox.android) { exclude(group = "org.bouncycastle") }
+    implementation(libs.androidx.work.runtime.ktx)
+    implementation(libs.play.services.auth)
 
     testImplementation(libs.junit)
+    testImplementation(libs.org.json)
 }
