@@ -25,7 +25,8 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge(statusBarStyle = SystemBarStyle.auto(0, 0), navigationBarStyle = SystemBarStyle.auto(0, 0))
         super.onCreate(savedInstanceState)
-        stato = StatoApp(applicationContext, TrattoApp.archivio(this), Preferenze(this))
+        val preferenze = Preferenze(this)
+        stato = StatoApp(applicationContext, TrattoApp.archivio(this), preferenze)
         stato.caricaIndice()
         if (savedInstanceState == null) gestisci(intent)
         setContent {

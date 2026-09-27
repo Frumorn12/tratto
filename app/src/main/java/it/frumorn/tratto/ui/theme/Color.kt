@@ -110,11 +110,13 @@ val LightExtra = TrattoExtraColors(
     desk = Color(0xFFF2F2F4),
 )
 
+// Nel tema scuro l'interfaccia si scurisce ma il foglio resta chiaro (appena attenuato),
+// cosi' l'inchiostro nero resta leggibile come su carta.
 val DarkExtra = TrattoExtraColors(
     success = Color(0xFF34C88A),
     warning = Color(0xFFFFBF62),
-    paper = Color(0xFF262626),
-    paperLine = Color(0xFF3E3A52),
+    paper = Color(0xFFEDEDF0),
+    paperLine = Color(0xFFCFCBE2),
     desk = Color(0xFF141414),
 )
 

@@ -7,7 +7,7 @@
         <item name="android:windowLightStatusBar">true</item>
         <item name="android:windowLightNavigationBar">true</item>
         <item name="android:windowSplashScreenBackground">@color/sfondo</item>
-        <item name="android:windowSplashScreenAnimatedIcon">@drawable/ic_launcher_foreground</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>
     </style>
     <color name="sfondo">#FFFFFF</color>
     <color name="icona_sfondo">#FFFFFF</color>

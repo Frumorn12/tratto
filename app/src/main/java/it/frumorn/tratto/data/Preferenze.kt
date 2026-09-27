@@ -15,6 +15,7 @@ enum class DoppioClic { NUOVA_NOTA, GOMMA, NIENTE }
 
 /** Impostazioni dell'app, osservabili da Compose e salvate subito. */
 class Preferenze(context: Context) {
+    private val contesto = context.applicationContext
     private val sp = context.getSharedPreferences("impostazioni", Context.MODE_PRIVATE)
 
     var tema by mutableStateOf(runCatching { Tema.valueOf(sp.getString("tema", null)!!) }.getOrDefault(Tema.SISTEMA))
@@ -30,7 +31,22 @@ class Preferenze(context: Context) {
     var sfondoPredefinito by mutableStateOf(runCatching { Sfondo.valueOf(sp.getString("sfondo", null)!!) }.getOrDefault(Sfondo.RIGHE))
         private set
 
-    fun impostaTema(v: Tema) { tema = v; sp.edit { putString("tema", v.name) } }
+    fun impostaTema(v: Tema) { tema = v; sp.edit { putString("tema", v.name) }; applicaTema(v) }
+
+    /**
+     * Comunica il tema al sistema, cosi' anche la schermata d'avvio e lo sfondo della finestra
+     * lo seguono (niente lampo bianco aprendo l'app in tema scuro).
+     */
+    fun applicaTema(v: Tema = tema) {
+        val um = contesto.getSystemService(android.app.UiModeManager::class.java) ?: return
+        um.setApplicationNightMode(
+            when (v) {
+                Tema.SISTEMA -> android.app.UiModeManager.MODE_NIGHT_AUTO
+                Tema.CHIARO -> android.app.UiModeManager.MODE_NIGHT_NO
+                Tema.SCURO -> android.app.UiModeManager.MODE_NIGHT_YES
+            },
+        )
+    }
     fun impostaSpigolo(v: Boolean) { spigoloVivo = v; sp.edit { putBoolean("spigolo", v) } }
     fun impostaSensibilita(v: Float) { sensibilita = v; sp.edit { putFloat("sensibilita", v) } }
     fun impostaDita(v: Boolean) { disegnaConDita = v; sp.edit { putBoolean("dita", v) } }
