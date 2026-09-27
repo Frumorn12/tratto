@@ -12,6 +12,7 @@ import androidx.core.content.IntentCompat
 import it.frumorn.tratto.data.DoppioClic
 import it.frumorn.tratto.data.Preferenze
 import it.frumorn.tratto.editor.TastoPenna
+import it.frumorn.tratto.ui.LuceStabile
 import it.frumorn.tratto.ui.App
 import it.frumorn.tratto.ui.Schermata
 import it.frumorn.tratto.ui.StatoApp
@@ -22,6 +23,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var stato: StatoApp
     private var sessione: SessioneEditor? = null
     private val tasto = TastoPenna { doppioClic() }
+    private val luce = LuceStabile(this) { stato.preferenze.luceStabile }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge(statusBarStyle = SystemBarStyle.auto(0, 0), navigationBarStyle = SystemBarStyle.auto(0, 0))
@@ -66,6 +68,7 @@ class MainActivity : ComponentActivity() {
 
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
         tasto.evento(ev)
+        luce.evento(ev)
         return super.dispatchTouchEvent(ev)
     }
 
@@ -79,6 +82,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onPause() {
         super.onPause()
+        luce.rilascia()
         sessione?.salvaOra()
     }
 

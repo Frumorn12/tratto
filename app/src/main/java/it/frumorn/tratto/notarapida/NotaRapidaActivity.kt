@@ -18,6 +18,7 @@ import it.frumorn.tratto.TrattoApp
 import it.frumorn.tratto.data.DoppioClic
 import it.frumorn.tratto.data.Preferenze
 import it.frumorn.tratto.editor.TastoPenna
+import it.frumorn.tratto.ui.LuceStabile
 import it.frumorn.tratto.ink.Pennelli
 import it.frumorn.tratto.ui.theme.TrattoTheme
 import kotlinx.coroutines.launch
@@ -38,6 +39,7 @@ class NotaRapidaActivity : ComponentActivity() {
 
     // Doppio clic dentro il foglietto: la nota e' gia' nuova, quindi al massimo alterna la gomma.
     private val tasto = TastoPenna { if (preferenze.doppioClic == DoppioClic.GOMMA) sessione.alternaGomma() }
+    private val luce = LuceStabile(this) { preferenze.luceStabile }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         // Sopra il velo scuro le icone delle barre di sistema restano chiare.
@@ -78,6 +80,7 @@ class NotaRapidaActivity : ComponentActivity() {
 
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
         penna(ev)
+        luce.evento(ev)
         return super.dispatchTouchEvent(ev)
     }
 

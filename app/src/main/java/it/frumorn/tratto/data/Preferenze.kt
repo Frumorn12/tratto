@@ -27,6 +27,9 @@ class Preferenze(context: Context) {
         private set
     var disegnaConDita by mutableStateOf(sp.getBoolean("dita", false))
         private set
+    /** Luminosita' ferma mentre si scrive (vedi ui/LuceStabile). */
+    var luceStabile by mutableStateOf(sp.getBoolean("luce_stabile", true))
+        private set
     var doppioClic by mutableStateOf(runCatching { DoppioClic.valueOf(sp.getString("doppioClic", null)!!) }.getOrDefault(DoppioClic.NUOVA_NOTA))
         private set
     var sfondoPredefinito by mutableStateOf(runCatching { Sfondo.valueOf(sp.getString("sfondo", null)!!) }.getOrDefault(Sfondo.RIGHE))
@@ -57,6 +60,7 @@ class Preferenze(context: Context) {
     fun impostaSpigolo(v: Boolean) { spigoloVivo = v; sp.edit { putBoolean("spigolo", v) } }
     fun impostaSensibilita(v: Float) { sensibilita = v; sp.edit { putFloat("sensibilita", v) } }
     fun impostaDita(v: Boolean) { disegnaConDita = v; sp.edit { putBoolean("dita", v) } }
+    fun impostaLuceStabile(v: Boolean) { luceStabile = v; sp.edit { putBoolean("luce_stabile", v) } }
     fun impostaDoppioClic(v: DoppioClic) { doppioClic = v; sp.edit { putString("doppioClic", v.name) } }
     fun impostaSfondo(v: Sfondo) { sfondoPredefinito = v; sp.edit { putString("sfondo", v.name) } }
     fun impostaStileBellaScrittura(v: Stile) { stileBellaScrittura = v; sp.edit { putString("bellaScrittura", v.name) } }

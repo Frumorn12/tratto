@@ -18,6 +18,11 @@ import androidx.ink.authoring.InProgressStrokeId
 import androidx.ink.authoring.InProgressStrokesFinishedListener
 import androidx.ink.authoring.InProgressStrokesView
 import androidx.ink.strokes.Stroke
+import androidx.ink.rendering.android.canvas.CanvasStrokeRenderer
+import androidx.ink.brush.InputToolType
+import androidx.ink.strokes.StrokeInput
+import androidx.ink.strokes.MutableStrokeInputBatch
+import androidx.ink.strokes.InProgressStroke
 import androidx.input.motionprediction.MotionEventPredictor
 import it.frumorn.tratto.data.Penna
 import it.frumorn.tratto.data.Tratto
@@ -65,6 +70,14 @@ class EditorView(context: Context) : FrameLayout(context), InProgressStrokesFini
     var alTiraPagina: (() -> Unit)? = null
     /** La penna tocca lo schermo (per nascondere quello che sta sopra le pagine, come i suggerimenti). */
     var alPennaGiu: (() -> Unit)? = null
+
+    /**
+     * Inchiostro in corso disegnato nel suo livello a parte (latenza minima, predefinito) o nella
+     * finestra, un fotogramma per volta. Nella nota rapida, finestra trasparente sopra un'altra
+     * app, il livello a parte sullo schermo del Tab S6 Lite non si aggiornava finche' la penna non
+     * si staccava (anche forzando fotogrammi nuovi): li' si disegna nella finestra.
+     */
+    var inchiostroDiretto = true
     /** Le pagine si spostano o cambiano scala. */
     var alMovimento: (() -> Unit)? = null
 
@@ -153,11 +166,11 @@ class EditorView(context: Context) : FrameLayout(context), InProgressStrokesFini
                     selezione?.let { dentroManiglia(e.x, e.y, it) } == true -> Gesto.SCALA_SELEZIONE.also { iniziaTrasforma(e, scala = true) }
                     selezione?.let { dentroSelezione(e.x, e.y, it) } == true -> Gesto.SPOSTA_SELEZIONE.also { iniziaTrasforma(e, scala = false) }
                     strumenti.strumento == Strumento.LAZO -> Gesto.LAZO.also { chiudiSelezione(); iniziaLazo(e) }
-                    else -> { if (selezione != null) chiudiSelezione(); Gesto.INCHIOSTRO.also { iniziaTratto(e) } }
+                    else -> { if (selezione != null) chiudiSelezione(); Gesto.INCHIOSTRO.also { if (inchiostroDiretto) iniziaTratto(e) else iniziaTrattoLento(e) } }
                 }
             }
             MotionEvent.ACTION_MOVE -> when (gesto) {
-                Gesto.INCHIOSTRO -> trattoInCorso?.let {
+                Gesto.INCHIOSTRO -> if (trattoLento != null) muoviTrattoLento(e) else trattoInCorso?.let {
                     predittore.record(e)
                     val previsione = predittore.predict()
                     try { inchiostro.addToStroke(e, e.getPointerId(0), it, previsione) } finally { previsione?.recycle() }
@@ -169,7 +182,7 @@ class EditorView(context: Context) : FrameLayout(context), InProgressStrokesFini
             }
             MotionEvent.ACTION_UP -> {
                 when (gesto) {
-                    Gesto.INCHIOSTRO -> trattoInCorso?.let { inchiostro.finishStroke(e, e.getPointerId(0), it) }
+                    Gesto.INCHIOSTRO -> if (trattoLento != null) fineTrattoLento(e) else trattoInCorso?.let { inchiostro.finishStroke(e, e.getPointerId(0), it) }
                     Gesto.GOMMA -> fineGomma()
                     Gesto.LAZO -> fineLazo()
                     Gesto.SPOSTA_SELEZIONE, Gesto.SCALA_SELEZIONE -> fineTrasforma()
@@ -182,6 +195,7 @@ class EditorView(context: Context) : FrameLayout(context), InProgressStrokesFini
             }
             MotionEvent.ACTION_CANCEL -> {
                 trattoInCorso?.let { inchiostro.cancelStroke(it, e) }
+                if (trattoLento != null) { trattoLento = null; sopra.invalidate() }
                 if (gesto == Gesto.GOMMA) fineGomma()
                 if (gesto == Gesto.LAZO) { lazo.reset(); sopra.invalidate() }
                 trattoInCorso = null
@@ -218,16 +232,101 @@ class EditorView(context: Context) : FrameLayout(context), InProgressStrokesFini
         for ((id, stroke) in strokes) {
             val (i, penna) = paginaDelTratto.remove(id) ?: continue
             val imp = colore.remove(id) ?: continue
-            val p = d.pagine.getOrNull(i) ?: continue
-            val t = Tratto(d.nuovoIdTratto(), penna, imp.colore, imp.spessore, Pennelli.punti(stroke))
-            p.precarica(t.id, stroke)
-            d.esegui(Modifica(p, emptyList(), listOf(t)))
+            val (p, t) = aggiungiTratto(d, i, penna, imp, stroke) ?: continue
             nuovi.getOrPut(p) { ArrayList() } += t
         }
         foglio.invalidate()
         inchiostro.removeFinishedStrokes(strokes.keys)
         alTratto?.invoke()
         nuovi.forEach { (p, lista) -> alTrattiFiniti?.invoke(p, lista) }
+    }
+
+    private fun aggiungiTratto(d: Documento, i: Int, penna: Penna, imp: ImpostazioniPenna, stroke: Stroke): Pair<PaginaViva, Tratto>? {
+        val p = d.pagine.getOrNull(i) ?: return null
+        val t = Tratto(d.nuovoIdTratto(), penna, imp.colore, imp.spessore, Pennelli.punti(stroke))
+        p.precarica(t.id, stroke)
+        d.esegui(Modifica(p, emptyList(), listOf(t)))
+        return p to t
+    }
+
+    // ---------------------------------------------------------------- inchiostro nella finestra
+
+    private var trattoLento: InProgressStroke? = null
+    private var paginaLenta = -1
+    private var pennaLenta = Penna.PENNA
+    private var impLento: ImpostazioniPenna? = null
+    private var t0Lento = 0L
+    private val mLento = Matrix()
+    private val schermoAPaginaLento = Matrix()
+    private val rendererLento = CanvasStrokeRenderer.create()
+    private val reali = MutableStrokeInputBatch()
+    private val previsti = MutableStrokeInputBatch()
+    private val punto = FloatArray(2)
+
+    private fun iniziaTrattoLento(e: MotionEvent) {
+        val d = documento ?: return
+        val i = foglio.paginaSotto(e.x, e.y, tolleranza = 30f)
+        if (i < 0) return
+        d.caricaTratti(d.pagine[i])
+        val imp = strumenti.corrente
+        pennaLenta = strumenti.penna
+        impLento = imp
+        paginaLenta = i
+        t0Lento = e.eventTime
+        foglio.schermoAPagina(i, schermoAPaginaLento)
+        trattoLento = InProgressStroke().apply { start(Pennelli.brush(pennaLenta, imp.colore, imp.spessore)) }
+        predittore.record(e)
+        muoviTrattoLento(e)
+    }
+
+    /** I punti dell'evento (compresi quelli storici) in coordinate di pagina, come fa la penna vera. */
+    private fun aggiungiPunti(batch: MutableStrokeInputBatch, e: MotionEvent) {
+        fun uno(x: Float, y: Float, tempo: Long, pressione: Float, inclinazione: Float) {
+            punto[0] = x; punto[1] = y
+            schermoAPaginaLento.mapPoints(punto)
+            try {
+                batch.add(
+                    InputToolType.STYLUS, punto[0], punto[1], (tempo - t0Lento).coerceAtLeast(0L), Pennelli.CM_PER_UNITA,
+                    pressione.coerceIn(0f, 1f), inclinazione.coerceIn(0f, 1.5707f), StrokeInput.NO_ORIENTATION,
+                )
+            } catch (_: IllegalArgumentException) {
+                // Punto fuori ordine o doppio: si salta, come fa Ink con la penna vera.
+            }
+        }
+        for (h in 0 until e.historySize) {
+            uno(e.getHistoricalX(h), e.getHistoricalY(h), e.getHistoricalEventTime(h), e.getHistoricalPressure(h), e.getHistoricalAxisValue(MotionEvent.AXIS_TILT, h))
+        }
+        uno(e.x, e.y, e.eventTime, e.pressure, e.getAxisValue(MotionEvent.AXIS_TILT))
+    }
+
+    private fun muoviTrattoLento(e: MotionEvent) {
+        val t = trattoLento ?: return
+        reali.clear(); previsti.clear()
+        aggiungiPunti(reali, e)
+        predittore.record(e)
+        predittore.predict()?.let { p -> try { aggiungiPunti(previsti, p) } finally { p.recycle() } }
+        t.enqueueInputs(reali, previsti)
+        t.updateShape(e.eventTime - t0Lento)
+        sopra.postInvalidateOnAnimation()
+    }
+
+    private fun fineTrattoLento(e: MotionEvent) {
+        val t = trattoLento ?: return
+        reali.clear(); previsti.clear()
+        aggiungiPunti(reali, e)
+        t.enqueueInputs(reali, previsti)
+        t.finishInput()
+        t.updateShape(e.eventTime - t0Lento)
+        trattoLento = null
+        val d = documento
+        val imp = impLento
+        val aggiunto = if (d != null && imp != null) aggiungiTratto(d, paginaLenta, pennaLenta, imp, t.toImmutable()) else null
+        foglio.invalidate()
+        sopra.invalidate()
+        if (aggiunto != null) {
+            alTratto?.invoke()
+            alTrattiFiniti?.invoke(aggiunto.first, listOf(aggiunto.second))
+        }
     }
 
     // ---------------------------------------------------------------- gomma
@@ -722,6 +821,10 @@ class EditorView(context: Context) : FrameLayout(context), InProgressStrokesFini
         }
 
         override fun onDraw(canvas: Canvas) {
+            trattoLento?.let { t ->
+                foglio.paginaASchermo(paginaLenta, mLento)
+                rendererLento.draw(canvas, t, mLento)
+            }
             val s = selezione
             val d = documento
             if (s != null && d != null) {

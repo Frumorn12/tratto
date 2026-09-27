@@ -70,6 +70,11 @@ fun Impostazioni(stato: StatoApp) {
                 VoceInterruttore("Calcoli automatici", "Scrivi un'espressione e poi «=»: Tratto scrive il risultato accanto. Usa il riconoscimento della scrittura (circa 14 MB, si scarica alla prima trascrizione)", p.calcoliAutomatici) { p.impostaCalcoliAutomatici(it) }
             }
             VoceInterruttore("Scrivi anche con il dito", "Se spento, il dito serve solo a scorrere e zoomare", p.disegnaConDita) { p.impostaDita(it) }
+            VoceInterruttore(
+                "Luminosità ferma mentre scrivi",
+                "Con la luminosità automatica, l'ombra della mano sul sensore non fa più salire e scendere lo schermo",
+                p.luceStabile,
+            ) { p.impostaLuceStabile(it) }
 
             Sezione("Nota rapida")
             SezioneNotaRapida()

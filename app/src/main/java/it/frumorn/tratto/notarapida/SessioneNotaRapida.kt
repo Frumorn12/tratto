@@ -69,6 +69,8 @@ class SessioneNotaRapida(context: Context, private val archivio: Archivio, priva
         documento.alCambio = { aggiornaStato() }
         vista.alTratto = { suggerimento.nascondi(); dopoModifica() }
         vista.alTrattiFiniti = { p, nuovi -> calcola(p, nuovi) }
+        // Il foglietto e' una finestra trasparente sopra un'altra app: vedi EditorView.inchiostroDiretto.
+        vista.inchiostroDiretto = false
         vista.alPennaGiu = { suggerimento.nascondi() }
         vista.alMovimento = { if (suggerimento.proposta != null) suggerimento.nascondi() }
         vista.post { vista.preriscalda() }
