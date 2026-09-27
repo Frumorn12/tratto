@@ -1,116 +1,116 @@
 <p align="center">
-  <img src="docs/immagini/banner.png" alt="Tratto: note a mano per tablet Android, veloci come carta e penna" width="100%">
+  <img src="docs/immagini/banner.png" alt="Tratto: handwritten notes for Android tablets, as quick as pen and paper" width="100%">
 </p>
 
 <p align="center">
-  <a href="LICENSE"><img alt="Licenza MIT" src="https://img.shields.io/badge/licenza-MIT-6546F3?style=flat-square"></a>
+  <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-6546F3?style=flat-square"></a>
   <img alt="Android 15+" src="https://img.shields.io/badge/Android-15%2B-3DDC84?style=flat-square&logo=android&logoColor=white">
-  <img alt="Kotlin" src="https://img.shields.io/badge/Kotlin-Compose-7F52FF?style=flat-square&logo=kotlin&logoColor=white">
-  <img alt="Jetpack Ink" src="https://img.shields.io/badge/inchiostro-Jetpack%20Ink-271E52?style=flat-square">
-  <img alt="Nessun tracciamento" src="https://img.shields.io/badge/tracciamento-nessuno-1F1747?style=flat-square">
+  <img alt="Kotlin and Jetpack Compose" src="https://img.shields.io/badge/Kotlin-Compose-7F52FF?style=flat-square&logo=kotlin&logoColor=white">
+  <img alt="Jetpack Ink" src="https://img.shields.io/badge/ink-Jetpack%20Ink-271E52?style=flat-square">
+  <img alt="No tracking" src="https://img.shields.io/badge/tracking-none-1F1747?style=flat-square">
 </p>
 
-**Tratto** è un'app di note a mano per tablet Android con penna attiva. È nata per sostituire Samsung Notes su un Galaxy Tab S6 Lite con LineageOS e fa le stesse cose: penne sensibili a pressione e inclinazione, lazo, pagine a righe o quadretti, PDF da annotare. In più scrive i risultati dei calcoli accanto alle formule, trascrive la tua calligrafia e fa il backup su Google Drive.
+**Tratto** is a handwriting notes app for Android tablets with an active stylus. It started as a Samsung Notes replacement for a Galaxy Tab S6 Lite running LineageOS, and does what Samsung Notes does: pens that respond to pressure and tilt, lasso, ruled and grid paper, PDFs you can write on. On top of that it solves the math you write, transcribes your handwriting and backs up to Google Drive.
 
-Niente account, niente pubblicità, niente statistiche: le note restano sul tablet, in file che puoi leggere anche senza l'app.
+No accounts, no ads, no analytics. Your notes stay on the tablet, in plain files that are documented below.
 
 <p align="center">
-  <img src="docs/immagini/vetrina-1.png" alt="Libreria, editor e annotazione di un PDF" width="100%">
+  <img src="docs/immagini/vetrina-1.png" alt="Library, editor and PDF annotation" width="100%">
 </p>
 
-## Perché si chiama Tratto
+## Why "Tratto"
 
 <p align="center">
-  <img src="docs/immagini/nome.png" alt="tratto, sostantivo maschile: il segno che lascia la penna; tratto distintivo; tutto d'un tratto" width="100%">
+  <img src="docs/immagini/nome.png" alt="tratto, Italian noun: a pen stroke; tratto distintivo, a distinctive trait; tutto d'un tratto, all of a sudden" width="100%">
 </p>
 
-## Cosa sa fare
+## Features
 
-### ✒️ Scrivere come su carta
-- **Cinque strumenti**: stilografica con pennino a 45°, penna, matita (la pressione scurisce il segno, l'inclinazione lo allarga), evidenziatore che passa *sotto* l'inchiostro, pennello.
-- **Pressione e inclinazione** della penna, con sensibilità regolabile. L'inchiostro è disegnato in *front buffer* con [Jetpack Ink](https://developer.android.com/jetpack/androidx/releases/ink) e la predizione del movimento: il tratto sta attaccato alla punta.
-- **Gomma** per tratti interi o parziale, anche tenendo premuto il tasto della penna o con la punta gomma, sulle penne che ce l’hanno.
-- **Lazo** per spostare, ridimensionare, ricolorare, copiare e incollare anche tra note diverse.
-- **Palmo appoggiato**: le dita vengono ignorate mentre la penna tocca o si avvicina allo schermo. Con due dita scorri e ingrandisci, doppio tocco per tornare a pagina intera.
-- Pagine **bianche, a righe, a quadretti o a puntini**, annulla e ripeti, tema chiaro e scuro.
+### ✒️ Write like on paper
+- **Five tools**: fountain pen with a 45° nib, ballpoint, pencil (pressure darkens it, tilt widens it), a highlighter that goes *under* the ink, and a brush.
+- **Pressure and tilt**, with adjustable sensitivity. Ink is drawn to the front buffer with [Jetpack Ink](https://developer.android.com/jetpack/androidx/releases/ink) plus motion prediction, so the stroke stays glued to the pen tip.
+- **Eraser** for whole strokes or partial erasing. It also works while you hold the pen button, or with the eraser end on pens that have one.
+- **Lasso** to move, resize, recolour, copy and paste, even between notes.
+- **Palm rejection**: fingers are ignored while the pen touches or hovers over the screen. Scroll and zoom with two fingers, double-tap to fit the page.
+- **Blank, ruled, grid or dotted** pages, undo and redo, light and dark theme.
 
-### ⚡ Una nota nuova in un attimo
-- **Doppio clic sul tasto della penna**: si apre subito una nota nuova, da qualunque punto dell'app.
-- Riquadro nelle impostazioni rapide, scorciatoia "Nuova nota" sull'icona e icona dedicata in Home.
-- Avvio a freddo in circa **0,4 secondi** sul Tab S6 Lite, animazioni di apertura che partono dalla copertina della nota.
+### ⚡ A new note in an instant
+- **Double-click the pen button** and a new note opens right away, from anywhere in the app.
+- Quick Settings tile, a "New note" launcher shortcut and a dedicated home screen icon.
+- Cold start in about **0.4 seconds** on a Tab S6 Lite. Opening a note animates it out of its cover.
 
 ### 📄 PDF
-- Apri un PDF da Tratto o condividilo verso Tratto da qualsiasi app, e scrivici sopra come su una pagina qualsiasi.
-- Esporta la nota in **PDF vettoriale** (l'inchiostro resta nitido a ogni ingrandimento) o una pagina come immagine.
+- Open a PDF from Tratto, or share one to Tratto from any app, and write on it like on any other page.
+- Export notes as **vector PDF** (the ink stays sharp at any zoom), or a single page as an image.
 
-### 🧮 Note matematiche
-Scrivi un'espressione e poi `=`: Tratto la legge e scrive il risultato accanto, come tratti di penna modificabili. Capisce `+ − × ÷`, frazioni, potenze, radici, parentesi, percentuali e π.
+### 🧮 Handwritten math
+Write an expression followed by `=` and Tratto writes the result next to it, as pen strokes you can edit. It understands `+ − × ÷`, fractions, powers, roots, parentheses, percentages and π.
 
-### 🔤 Trascrizione e bella copia
-Seleziona una frase col lazo e **trascrivila** in testo, da copiare o condividere. Oppure fai la **bella copia**: la frase viene riscritta al suo posto in corsivo o stampatello, con i caratteri a tratto singolo di [Hershey](https://en.wikipedia.org/wiki/Hershey_fonts). Il riconoscimento gira tutto sul tablet ([ML Kit Digital Ink](https://developers.google.com/ml-kit/vision/digital-ink-recognition)); serve la rete solo per scaricare una volta il modello italiano.
+### 🔤 Transcription and neat copy
+Lasso a sentence to **transcribe** it into text you can copy or share. Or make a **neat copy**: the sentence is rewritten in place in cursive or print, using the single-stroke [Hershey fonts](https://en.wikipedia.org/wiki/Hershey_fonts). Recognition runs entirely on the tablet with [ML Kit Digital Ink](https://developers.google.com/ml-kit/vision/digital-ink-recognition); the network is only needed once, to download the language model.
 
 ### ☁️ Backup
-- **File `.tratto`**: tutte le note in un unico file da salvare dove vuoi, ripristinabile unendo o sostituendo.
-- **Google Drive**: backup automatico (anche solo su Wi‑Fi o in carica) in una cartella che vede solo Tratto. L'app usa il permesso `drive.file`: non può leggere nient'altro del tuo Drive. Dettagli in [docs/backup.md](docs/backup.md).
+- **`.tratto` file**: all your notes in one file you can store anywhere, restored by merging or replacing.
+- **Google Drive**: automatic backups (optionally only on Wi‑Fi or while charging) into a folder only Tratto can see. The app asks for the `drive.file` scope, so it cannot read anything else in your Drive. Details in [docs/backup.md](docs/backup.md).
 
 <p align="center">
-  <img src="docs/immagini/vetrina-2.png" alt="Pannello delle penne, trascrizione e tema scuro" width="100%">
+  <img src="docs/immagini/vetrina-2.png" alt="Pen panel, transcription and dark theme" width="100%">
 </p>
 
-## Installare
+## Install
 
-| Dove | Versione | Note |
+| Where | Build | Notes |
 | --- | --- | --- |
-| **Repository F-Droid di Tratto** | completa | Aggiornamenti automatici dal client F-Droid. Istruzioni qui sotto. |
-| **F-Droid ufficiale** | libera | In arrivo. Senza componenti Google: niente trascrizione, note matematiche e Drive. Il backup automatico va in una cartella a scelta. |
-| **[Release su GitHub](https://github.com/Frumorn12/tratto/releases)** | completa | APK da installare a mano. |
+| **Tratto's F-Droid repository** | full | Automatic updates through the F-Droid client. See below. |
+| **Official F-Droid** | free | Coming soon. No Google components, so no transcription, math or Drive; automatic backups go to a folder of your choice instead. |
+| **[GitHub releases](https://github.com/Frumorn12/tratto/releases)** | full | APK to install by hand. |
 
-Serve **Android 15 o più recente** su processore a 64 bit (arm64) e una penna attiva (S Pen, Wacom EMR, USI). Tratto è provato ogni giorno su un Galaxy Tab S6 Lite (SM-P610) con LineageOS 23.2.
+Tratto needs **Android 15 or newer**, a 64-bit ARM processor and an active stylus (S Pen, Wacom EMR, USI). It is used every day on a Galaxy Tab S6 Lite (SM-P610) running LineageOS 23.2.
+
+The interface is in Italian for now. Translations are welcome.
 
 <!-- repo-fdroid -->
 
-## Come sono fatte le note
+## How notes are stored
 
-Tutto sta nella memoria privata dell'app, in file semplici:
+Everything lives in the app's private storage, in simple files:
 
 ```
 tratto/
-├── indice.json                 note, cartelle, preferite
+├── indice.json                 notes, folders, favourites
 └── note/<id>/
-    ├── nota.json               titolo, pagine, sfondi
-    ├── pagine/<pagina>.tp      i tratti della pagina (binario)
-    ├── allegato.pdf            il PDF originale, se c'è
-    └── anteprima.webp          la copertina
+    ├── nota.json               title, pages, backgrounds
+    ├── pagine/<page>.tp        the page's strokes (binary)
+    ├── allegato.pdf            the original PDF, if any
+    └── anteprima.webp          the cover
 ```
 
-Un file `.tp` comincia con `TRTP` e la versione, poi contiene i tratti uno dopo l'altro in little endian: penna, colore, spessore e per ogni punto `x, y, pressione, inclinazione, orientamento, tempo`. Le pagine si salvano in modo atomico (file temporaneo, `fsync`, rinomina): un'interruzione non lascia mai una pagina a metà. Il backup `.tratto` è uno ZIP con la stessa struttura.
+A `.tp` file starts with `TRTP` and a version number, followed by the strokes in little endian: tool, colour, size, and for every point `x, y, pressure, tilt, orientation, time`. Pages are saved atomically (temporary file, `fsync`, rename), so an interruption never leaves a half-written page. A `.tratto` backup is a ZIP with the same layout.
 
-## Compilare
+## Building
 
-Servono JDK 21 e l'Android SDK (piattaforma 37).
+You need JDK 21 and the Android SDK (platform 37).
 
 ```sh
 export ANDROID_HOME=$HOME/Android/Sdk
-./gradlew :app:assembleCompletaRelease   # con ML Kit e Google Drive
-./gradlew :app:assembleLiberaRelease     # solo software libero, quella di F-Droid
+./gradlew :app:assembleCompletaRelease   # full build: ML Kit and Google Drive
+./gradlew :app:assembleLiberaRelease     # free software only, the F-Droid build
 ./gradlew :app:testCompletaDebugUnitTest
 ```
 
-`tools/installa.sh` compila, installa sul tablet collegato e precompila l'app con `cmd package compile -m speed`. `tools/penna.py` simula la S Pen (pressione, inclinazione, tasto, scrittura in corsivo) scrivendo eventi in `/dev/input`: è così che Tratto viene provato senza toccare il tablet.
+`tools/installa.sh` builds, installs on the connected tablet and precompiles the app with `cmd package compile -m speed`. `tools/penna.py` simulates the S Pen (pressure, tilt, button, cursive handwriting) by writing events to `/dev/input`: that is how Tratto gets tested without touching the tablet.
 
-## Grazie a
+The code, comments and commit messages are in Italian.
 
-- [Jetpack Ink](https://developer.android.com/jetpack/androidx/releases/ink) e [Jetpack Compose](https://developer.android.com/compose) (Apache 2.0)
+## Thanks to
+
+- [Jetpack Ink](https://developer.android.com/jetpack/androidx/releases/ink) and [Jetpack Compose](https://developer.android.com/compose) (Apache 2.0)
 - [PdfBox-Android](https://github.com/TomRoush/PdfBox-Android) (Apache 2.0)
-- [ML Kit Digital Ink Recognition](https://developers.google.com/ml-kit/vision/digital-ink-recognition), solo nella versione completa
-- [Manrope](https://github.com/sharanda/manrope) di Mikhail Sharanda (SIL Open Font License, [docs/OFL-Manrope.txt](docs/OFL-Manrope.txt))
-- I caratteri di [A. V. Hershey](https://en.wikipedia.org/wiki/Hershey_fonts) ([docs/Hershey-fonts.txt](docs/Hershey-fonts.txt))
+- [ML Kit Digital Ink Recognition](https://developers.google.com/ml-kit/vision/digital-ink-recognition), full build only
+- [Manrope](https://github.com/sharanda/manrope) by Mikhail Sharanda (SIL Open Font License, [docs/OFL-Manrope.txt](docs/OFL-Manrope.txt))
+- The fonts of [A. V. Hershey](https://en.wikipedia.org/wiki/Hershey_fonts) ([docs/Hershey-fonts.txt](docs/Hershey-fonts.txt))
 - [Material Symbols](https://fonts.google.com/icons) (Apache 2.0)
 
-## In English
+## License
 
-**Tratto** ("stroke", as in a pen stroke) is a handwriting notes app for Android tablets with an active stylus, built as a Samsung Notes replacement for a Galaxy Tab S6 Lite running LineageOS. Pressure- and tilt-sensitive pens with low-latency front-buffered ink, lasso, eraser, ruled/grid/dot pages, PDF annotation and vector PDF export, handwritten math (write an expression and `=`, the result appears next to it), on-device handwriting transcription, and backups to a file or Google Drive. No accounts, no ads, no analytics. The UI is in Italian.
-
-## Licenza
-
-[MIT](LICENSE): puoi usare, modificare e ridistribuire Tratto come vuoi, anche in progetti commerciali, mantenendo l'avviso di copyright.
+[MIT](LICENSE): use, modify and redistribute Tratto however you like, including in commercial projects, as long as you keep the copyright notice.
