@@ -66,7 +66,7 @@ Lasso a sentence to **transcribe** it into text you can copy or share. Or make a
 
 | Where | Build | Notes |
 | --- | --- | --- |
-| **Tratto's F-Droid repository** | full | Automatic updates through the F-Droid client. See below. |
+| **[Tratto's F-Droid repository](https://frumorn12.github.io/tratto-fdroid/)** | full | Automatic updates through the F-Droid client. See below. |
 | **Official F-Droid** | free | Coming soon. No Google components, so no transcription, math or Drive; automatic backups go to a folder of your choice instead. |
 | **[GitHub releases](https://github.com/Frumorn12/tratto/releases)** | full | APK to install by hand. |
 
@@ -74,7 +74,18 @@ Tratto needs **Android 15 or newer**, a 64-bit ARM processor and an active stylu
 
 The interface is in Italian for now. Translations are welcome.
 
-<!-- repo-fdroid -->
+### Adding Tratto's F-Droid repository
+
+<a href="https://frumorn12.github.io/tratto-fdroid/"><img src="https://img.shields.io/badge/F--Droid-add%20repository-1976D2?style=flat-square&logo=fdroid&logoColor=white" alt="Add the repository to F-Droid"></a>
+
+Open [frumorn12.github.io/tratto-fdroid](https://frumorn12.github.io/tratto-fdroid/) on your tablet and tap **Aggiungi il repository a F-Droid**, or add it by hand in F-Droid › Settings › Repositories:
+
+```
+https://frumorn12.github.io/tratto-fdroid/repo
+fingerprint 5A237B0F6FDB31B94D8A0D3414ACE1C047FB1FE931B4C2F6E595E03E1F99ECE0
+```
+
+The full and free builds are signed differently: to switch, back up from Tratto (Settings › Backup), uninstall, reinstall and restore.
 
 ## How notes are stored
 
