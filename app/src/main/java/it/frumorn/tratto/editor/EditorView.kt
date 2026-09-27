@@ -75,7 +75,7 @@ class EditorView(context: Context) : FrameLayout(context), InProgressStrokesFini
      * Inchiostro in corso disegnato nel suo livello a parte (latenza minima, predefinito) o nella
      * finestra, un fotogramma per volta. Nella nota rapida, finestra trasparente sopra un'altra
      * app, il livello a parte sullo schermo del Tab S6 Lite non si aggiornava finche' la penna non
-     * si staccava (anche forzando fotogrammi nuovi): li' si disegna nella finestra.
+     * si staccava (anche forzando fotogrammi nuovi): li' si disegna nella finestra, senza previsione.
      */
     var inchiostroDiretto = true
     /** Le pagine si spostano o cambiano scala. */
@@ -275,7 +275,6 @@ class EditorView(context: Context) : FrameLayout(context), InProgressStrokesFini
         t0Lento = e.eventTime
         foglio.schermoAPagina(i, schermoAPaginaLento)
         trattoLento = InProgressStroke().apply { start(Pennelli.brush(pennaLenta, imp.colore, imp.spessore)) }
-        predittore.record(e)
         muoviTrattoLento(e)
     }
 
@@ -299,12 +298,13 @@ class EditorView(context: Context) : FrameLayout(context), InProgressStrokesFini
         uno(e.x, e.y, e.eventTime, e.pressure, e.getAxisValue(MotionEvent.AXIS_TILT))
     }
 
+    // Senza previsione del movimento: disegnata nella finestra, arriva a schermo un fotogramma
+    // dopo e allungava il tratto oltre la punta (scrivendo verso destra, finiva piu' a destra
+    // e al rilascio tornava indietro). Cosi' il tratto sta sempre sotto la penna.
     private fun muoviTrattoLento(e: MotionEvent) {
         val t = trattoLento ?: return
         reali.clear(); previsti.clear()
         aggiungiPunti(reali, e)
-        predittore.record(e)
-        predittore.predict()?.let { p -> try { aggiungiPunti(previsti, p) } finally { p.recycle() } }
         t.enqueueInputs(reali, previsti)
         t.updateShape(e.eventTime - t0Lento)
         sopra.postInvalidateOnAnimation()
