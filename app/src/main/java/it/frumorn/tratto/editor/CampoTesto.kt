@@ -62,6 +62,14 @@ class CampoTesto(context: Context) : EditText(context) {
     init {
         background = null
         setPadding(0, 0, 0, 0)
+        // Niente misure minime o spaziature dal tema: il campo deve impaginare come lo StaticLayout della pagina.
+        minHeight = 0
+        minimumHeight = 0
+        minWidth = 0
+        minimumWidth = 0
+        letterSpacing = 0f
+        fontFeatureSettings = null
+        isElegantTextHeight = false
         includeFontPadding = false
         setLineSpacing(0f, Impaginazione.INTERLINEA)
         isFallbackLineSpacing = true

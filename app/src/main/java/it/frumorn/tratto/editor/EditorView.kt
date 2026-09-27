@@ -1165,17 +1165,18 @@ class EditorView(context: Context) : FrameLayout(context), InProgressStrokesFini
 
     private fun pressioneLunga() {
         if (!inGestoDita || ditoLontano || ditoSuOggetto || pennaGiu) return
-        lungaFatta = true
-        performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
         // Su un oggetto lo seleziona; su un punto vuoto della pagina apre il menu (incolla, inserisci...).
         val sotto = oggettoSotto(ditoX0, ditoY0)
+        val menu = alPressioneLunga
+        if (sotto == null && (menu == null || foglio.paginaSotto(ditoX0, ditoY0) < 0)) return
+        lungaFatta = true
+        performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+        if (campo != null) chiudiTesto()
         if (sotto != null) {
-            if (campo != null) chiudiTesto()
             selezionaOggetto(sotto.first, sotto.second.id)
-        } else if (foglio.paginaSotto(ditoX0, ditoY0) >= 0) {
-            if (campo != null) chiudiTesto()
+        } else {
             deselezionaOggetto()
-            alPressioneLunga?.invoke(ditoX0, ditoY0)
+            menu?.invoke(ditoX0, ditoY0)
         }
     }
 
