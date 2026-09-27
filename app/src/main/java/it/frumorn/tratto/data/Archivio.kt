@@ -24,8 +24,14 @@ import java.util.UUID
  *
  * Tutti i metodi fanno I/O: vanno chiamati fuori dal thread principale.
  */
-class Archivio(context: Context) {
-    val radice = File(context.filesDir, "tratto")
+class Archivio(
+    /** Cartella dell'archivio (files/tratto). */
+    val radice: File,
+    /** Cartella per i file temporanei (la cacheDir), usata dal ripristino dei backup. */
+    val temporanei: File,
+) {
+    constructor(context: Context) : this(File(context.filesDir, "tratto"), context.cacheDir)
+
     private val cartellaNote = File(radice, "note")
     private val fileIndice = File(radice, "indice.json")
 
@@ -40,6 +46,7 @@ class Archivio(context: Context) {
     fun caricaIndice() {
         if (caricato) return
         caricato = true
+        recuperaScambioInterrotto()
         if (!fileIndice.exists()) return
         val (note, cartelle) = leggiIndice(fileIndice.readText())
         _cartelle.value = cartelle
@@ -153,6 +160,16 @@ class Archivio(context: Context) {
         _note.value = emptyList()
         _cartelle.value = emptyList()
         caricaIndice()
+    }
+
+    /**
+     * Il ripristino di un backup sostituisce l'archivio con due rename (vedi BackupLocale). Se l'app muore
+     * proprio tra i due, "tratto" manca ma "tratto.nuovo" e' completo: lo si rimette al suo posto.
+     */
+    private fun recuperaScambioInterrotto() {
+        if (radice.exists()) return
+        val nuova = File(radice.path + ".nuovo")
+        if (nuova.isDirectory) nuova.renameTo(radice)
     }
 
     private fun aggiorna(id: String, f: (NotaInfo) -> NotaInfo) {
