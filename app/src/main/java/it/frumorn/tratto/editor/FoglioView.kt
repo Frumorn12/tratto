@@ -37,6 +37,15 @@ class FoglioView(context: Context) : View(context) {
         private set
     var ty = 0f
         private set
+    /** Spazio in pixel coperto dalle barre in alto: la prima pagina parte sotto. */
+    var spazioSopra = 0f
+        set(v) {
+            val prima = field
+            field = v
+            if (ty == prima || ty == -0f) ty = v
+            limita(); invalidate()
+        }
+
     var pizzicando = false
         set(v) { field = v; if (!v) invalidate() }
 
@@ -92,7 +101,7 @@ class FoglioView(context: Context) : View(context) {
         if (oldw == 0) {
             scala = scalaAdatta()
             tx = (w - LARGHEZZA * scala) / 2f
-            ty = 0f
+            ty = spazioSopra
         } else {
             // Mantiene il punto al centro dello schermo dopo una rotazione.
             val cx = (oldw / 2f - tx) / scala
@@ -129,7 +138,7 @@ class FoglioView(context: Context) : View(context) {
 
     /** Porta in vista l'inizio della pagina [i]. */
     fun vaiAPagina(i: Int) {
-        ty = -cimaPagina(i) * scala + 24 * densita
+        ty = -cimaPagina(i) * scala + spazioSopra
         limita(); invalidate(); alMovimento?.invoke()
     }
 
@@ -139,12 +148,12 @@ class FoglioView(context: Context) : View(context) {
         val largo = LARGHEZZA * scala
         tx = if (largo <= width) (width - largo) / 2f else tx.coerceIn(width - largo - 24 * densita, 24 * densita)
         val alto = altezzaTotale() * scala
-        val minTy = min(0f, height - alto)
-        ty = ty.coerceIn(minTy, 0f)
+        val minTy = min(spazioSopra, height - alto)
+        ty = ty.coerceIn(minTy, spazioSopra)
     }
 
     val limiteTy: ClosedFloatingPointRange<Float>
-        get() = min(0f, height - altezzaTotale() * scala)..0f
+        get() = min(spazioSopra, height - altezzaTotale() * scala)..spazioSopra
     val limiteTx: ClosedFloatingPointRange<Float>
         get() {
             val largo = LARGHEZZA * scala

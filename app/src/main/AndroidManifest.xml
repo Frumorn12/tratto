@@ -1,17 +1,76 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
     <application
         android:name=".TrattoApp"
-        android:label="Tratto"
+        android:label="@string/app_name"
         android:icon="@mipmap/ic_launcher"
-        android:theme="@android:style/Theme.Material.Light.NoActionBar">
+        android:roundIcon="@mipmap/ic_launcher"
+        android:theme="@style/Tema.Tratto"
+        android:enableOnBackInvokedCallback="true"
+        android:supportsRtl="false">
+
         <activity
             android:name=".MainActivity"
-            android:exported="true">
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:windowSoftInputMode="adjustResize"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode|density|fontScale">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <intent-filter>
+                <action android:name="it.frumorn.tratto.NUOVA_NOTA" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+            <!-- Nota nuova da "assistente digitale" (pressione lunga del tasto di accensione o angolo in basso). -->
+            <intent-filter>
+                <action android:name="android.intent.action.ASSIST" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.CREATE_NOTE" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+            <!-- "Apri con Tratto" e "Condividi con Tratto" per i PDF. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="application/pdf" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="application/pdf" />
+            </intent-filter>
+            <meta-data android:name="android.app.shortcuts" android:resource="@xml/scorciatoie" />
         </activity>
+
+        <!-- Voce separata "Nuova nota" per il launcher, da usare per esempio con il doppio tocco di Lawnchair. -->
+        <activity-alias
+            android:name=".NuovaNota"
+            android:exported="true"
+            android:label="@string/nuova_nota"
+            android:icon="@drawable/scorciatoia_nuova"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <meta-data android:name="it.frumorn.tratto.azione" android:value="nuova" />
+        </activity-alias>
+
+        <service
+            android:name=".ingressi.TileNuovaNota"
+            android:exported="true"
+            android:icon="@drawable/ic_edit_note"
+            android:label="@string/nuova_nota"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+            <meta-data android:name="android.service.quicksettings.ACTIVE_TILE" android:value="false" />
+        </service>
     </application>
 </manifest>

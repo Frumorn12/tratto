@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="nuova"
+        android:enabled="true"
+        android:icon="@drawable/scorciatoia_nuova"
+        android:shortcutShortLabel="@string/nuova_nota"
+        android:shortcutLongLabel="@string/nuova_nota">
+        <intent
+            android:action="it.frumorn.tratto.NUOVA_NOTA"
+            android:targetPackage="it.frumorn.tratto"
+            android:targetClass="it.frumorn.tratto.MainActivity" />
+    </shortcut>
+</shortcuts>
