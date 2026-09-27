@@ -8,8 +8,8 @@ import it.frumorn.tratto.data.Archivio
 /**
  * Applicazione: tiene l'archivio delle note, creato al primo uso e condiviso da tutte le schermate.
  *
- * E' anche il Configuration.Provider di WorkManager (backup su Drive e download del modello di
- * ML Kit), che cosi' si avvia solo quando serve invece che a ogni avvio dell'app.
+ * E' anche il Configuration.Provider di WorkManager (backup automatico e, nella versione completa,
+ * download del modello di ML Kit), che cosi' si avvia solo quando serve invece che a ogni avvio dell'app.
  */
 class TrattoApp : Application(), Configuration.Provider {
     val archivio: Archivio by lazy { Archivio(this) }

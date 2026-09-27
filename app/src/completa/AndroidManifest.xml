@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Solo per la versione completa: si unisce a src/main/AndroidManifest.xml. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- Backup su Google Drive e download del modello di ML Kit -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <application>
+        <!-- ML Kit non si inizializza a ogni avvio: lo fa Trascrittore al primo uso. -->
+        <provider
+            android:name="com.google.mlkit.common.internal.MlKitInitProvider"
+            android:authorities="${applicationId}.mlkitinitprovider"
+            tools:node="remove" />
+    </application>
+</manifest>

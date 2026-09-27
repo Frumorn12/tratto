@@ -38,9 +38,15 @@ import kotlin.math.max
  * Il modello italiano ("it", circa 14 MB da scaricare) arriva da Google al primo uso con
  * [scaricaModello]; dopo si lavora senza rete. ML Kit non si inizializza piu' all'avvio dell'app
  * (il suo ContentProvider e' tolto nel manifest): lo si fa qui, al primo uso, fuori dal main thread.
+ *
+ * Solo nella versione completa: quella libera ha un Trascrittore con la stessa interfaccia che
+ * non riconosce niente (ML Kit non e' software libero).
  */
 object Trascrittore {
     const val LINGUA = "it"
+
+    /** Il riconoscimento della scrittura c'e' in questa versione dell'app: la UI mostra le sue voci. */
+    const val DISPONIBILE = true
 
     /** Stato del modello di riconoscimento. ML Kit non da' la percentuale del download. */
     sealed interface StatoModello {

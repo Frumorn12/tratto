@@ -92,6 +92,7 @@ import it.frumorn.tratto.editor.ModoGomma
 import it.frumorn.tratto.editor.StatoStrumenti
 import it.frumorn.tratto.editor.Strumento
 import it.frumorn.tratto.ink.Pennelli
+import it.frumorn.tratto.scrittura.Trascrittore
 import it.frumorn.tratto.ui.BottoneIcona
 import it.frumorn.tratto.ui.Icona
 import it.frumorn.tratto.ui.Schermata
@@ -509,7 +510,8 @@ private fun BarraSelezione(s: SessioneEditor, modifier: Modifier) {
                 Box(Modifier.padding(8.dp)) { GrigliaColori(StatoStrumenti.TAVOLOZZA, 0) { s.vista.coloraSelezione(it); colori = false } }
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
-                AzioneSelezione(R.drawable.ic_text_fields, "Trascrivi") { s.trascrivi() }
+                // Nella versione libera non c'e' il riconoscimento della scrittura.
+                if (Trascrittore.DISPONIBILE) AzioneSelezione(R.drawable.ic_text_fields, "Trascrivi") { s.trascrivi() }
                 AzioneSelezione(R.drawable.ic_palette, "Colore") { colori = !colori }
                 AzioneSelezione(R.drawable.ic_content_copy, "Copia") { s.copia() }
                 AzioneSelezione(R.drawable.ic_content_cut, "Taglia") { s.taglia() }

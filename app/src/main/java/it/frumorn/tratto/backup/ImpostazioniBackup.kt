@@ -6,7 +6,10 @@ import androidx.core.content.edit
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
-/** Stato del backup su Google Drive, per la UI. */
+/**
+ * Stato del backup automatico, per la UI: su Google Drive nella versione completa, in una cartella
+ * scelta dall'utente nella versione libera (vedi DestinazioneBackup nei due flavor).
+ */
 data class StatoBackup(
     /** Ora (ms) dell'ultimo backup riuscito. */
     val ultimoBackup: Long? = null,
@@ -24,6 +27,10 @@ data class StatoBackup(
     val soloInCarica: Boolean = false,
     /** L'accesso a Drive e' stato revocato o e' scaduto: serve di nuovo autorizza() dalla UI. */
     val serveAccesso: Boolean = false,
+    /** Versione libera: URI (albero SAF) della cartella dei backup automatici, null se non scelta. */
+    val cartella: String? = null,
+    /** Nome della [cartella] da mostrare. */
+    val nomeCartella: String? = null,
 )
 
 /**
@@ -68,8 +75,15 @@ object ImpostazioniBackup {
         it.copy(account = account ?: it.account, serveAccesso = false, errore = null)
     }
 
-    internal fun scollegato(context: Context) =
-        modifica(context) { it.copy(account = null, automatico = false, serveAccesso = false, errore = null, ultimoBackup = null) }
+    /** Versione libera: la cartella dei backup automatici e' cambiata (l'ultimo backup era altrove). */
+    internal fun cartellaScelta(context: Context, uri: String, nome: String?) = modifica(context) { s ->
+        s.copy(cartella = uri, nomeCartella = nome, errore = null, ultimoBackup = if (s.cartella == uri) s.ultimoBackup else null)
+    }
+
+    /** Scollega Drive o la cartella: una sola delle due e' usata, a seconda della versione. */
+    internal fun scollegato(context: Context) = modifica(context) {
+        it.copy(account = null, cartella = null, nomeCartella = null, automatico = false, serveAccesso = false, errore = null, ultimoBackup = null)
+    }
 
     @Synchronized
     private fun modifica(context: Context, f: (StatoBackup) -> StatoBackup) {
@@ -96,6 +110,8 @@ object ImpostazioniBackup {
         errore = p.getString("errore", null),
         soloInCarica = p.getBoolean("soloInCarica", false),
         serveAccesso = p.getBoolean("serveAccesso", false),
+        cartella = p.getString("cartella", null),
+        nomeCartella = p.getString("nomeCartella", null),
     )
 
     private fun salva(p: SharedPreferences, s: StatoBackup) = p.edit {
@@ -106,5 +122,7 @@ object ImpostazioniBackup {
         putString("errore", s.errore)
         putBoolean("soloInCarica", s.soloInCarica)
         putBoolean("serveAccesso", s.serveAccesso)
+        putString("cartella", s.cartella)
+        putString("nomeCartella", s.nomeCartella)
     }
 }
