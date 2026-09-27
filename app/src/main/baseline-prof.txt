@@ -1,0 +1,8 @@
+# Profilo di avvio di Tratto: compila in anticipo tutto il codice dell'app
+# (e' piccolo), cosi' libreria ed editor partono senza interprete ne' JIT.
+HSPLit/frumorn/tratto/**->**(**)**
+Lit/frumorn/tratto/**;
+# Jetpack Ink: la penna deve essere pronta dal primo tratto.
+HSPLandroidx/ink/**->**(**)**
+Landroidx/ink/**;
+HSPLandroidx/input/motionprediction/**->**(**)**

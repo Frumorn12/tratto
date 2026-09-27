@@ -96,6 +96,11 @@
                 android:name="androidx.work.WorkManagerInitializer"
                 android:value="androidx.startup"
                 tools:node="remove" />
+            <!-- Emoji2 non serve (Android 16 ha gia' le emoji): niente lavoro in piu' all'avvio. -->
+            <meta-data
+                android:name="androidx.emoji2.text.EmojiCompatInitializer"
+                android:value="androidx.startup"
+                tools:node="remove" />
         </provider>
     </application>
 </manifest>
