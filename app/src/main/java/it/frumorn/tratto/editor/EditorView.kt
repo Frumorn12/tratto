@@ -1521,8 +1521,13 @@ class EditorView(context: Context) : FrameLayout(context), InProgressStrokesFini
 
         override fun onDraw(canvas: Canvas) {
             trattoLento?.let { t ->
+                // Il renderer disegna nelle coordinate della tela: la trasformazione pagina ->
+                // schermo va applicata prima (il parametro gli serve solo per la qualita').
                 foglio.paginaASchermo(paginaLenta, mLento)
+                val salvato = canvas.save()
+                canvas.concat(mLento)
                 rendererLento.draw(canvas, t, mLento)
+                canvas.restoreToCount(salvato)
             }
             val s = selezione
             val d = documento
