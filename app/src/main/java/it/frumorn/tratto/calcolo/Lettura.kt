@@ -31,8 +31,13 @@ internal object Lettura {
     class Fissa(val testo: String) : Parte
     class Buco(val sequenza: Int) : Parte
 
-    /** Simboli consecutivi sulla stessa riga, da leggere insieme; [h] e' l'altezza dei simboli. */
-    class Sequenza(val gruppi: List<Gruppo>, val h: Float) {
+    /**
+     * Simboli consecutivi sulla stessa riga, da leggere insieme; [h] e' l'altezza dei simboli.
+     * [forzati] sono i simboli gia' riconosciuti dalla forma (il piu'), per posizione in [gruppi]:
+     * restano nella sequenza perche' ML Kit legge meglio le cifre nel loro contesto (un "4" da
+     * solo diventa facilmente "9"), ma il loro carattere si corregge dopo la lettura.
+     */
+    class Sequenza(val gruppi: List<Gruppo>, val h: Float, val forzati: Map<Int, Char> = emptyMap()) {
         /** I tratti da sinistra a destra, e dentro ogni simbolo nell'ordine in cui sono stati scritti. */
         val tratti: List<Tratto> get() = gruppi.flatMap { g -> g.forme.sortedBy { it.id }.map { it.tratto } }
     }
@@ -44,15 +49,21 @@ internal object Lettura {
         val sequenze = ArrayList<Sequenza>()
         fun visita(r: Riga) {
             var corrente = ArrayList<Gruppo>()
+            var forzati = HashMap<Int, Char>()
             fun chiudi() {
                 if (corrente.isEmpty()) return
-                sequenze += Sequenza(corrente, r.h)
+                sequenze += Sequenza(corrente, r.h, forzati)
                 parti += Buco(sequenze.lastIndex)
                 corrente = ArrayList()
+                forzati = HashMap()
             }
             for (v in r.voci) {
                 when (val e = v.elemento) {
-                    is Gruppo -> if (e.speciale != null) { chiudi(); parti += Fissa(e.speciale) } else corrente += e
+                    is Gruppo -> when {
+                        e.speciale == "+" && v.esponente == null -> { forzati[corrente.size] = '+'; corrente += e }
+                        e.speciale != null -> { chiudi(); parti += Fissa(e.speciale) }
+                        else -> corrente += e
+                    }
                     is Frazione -> {
                         chiudi()
                         parti += Fissa("((")
@@ -96,7 +107,8 @@ internal object Lettura {
         val varianti = ArrayList<List<String>>()
         var pre = ""
         for ((k, s) in schema.sequenze.withIndex()) {
-            val candidati = lettore.leggi(s.tratti, pre, 2f * s.h)
+            var candidati = lettore.leggi(s.tratti, pre, 2f * s.h)
+            if (s.forzati.isNotEmpty()) candidati = allinea(s, candidati) ?: aPezzi(s, pre, lettore)
             val iniziale = k == 0 && (schema.parti.firstOrNull() as? Buco)?.sequenza == 0
             val v = Testo.varianti(candidati, iniziale)
             if (v.isEmpty()) return null
@@ -114,6 +126,41 @@ internal object Lettura {
             if (nodo.operazione) return Formula(nodo, riga)
         }
         return null
+    }
+
+    /**
+     * Le letture con un carattere per simbolo, con i simboli [Sequenza.forzati] al loro posto;
+     * null se ML Kit non ha mai letto un carattere per simbolo.
+     */
+    internal fun allinea(s: Sequenza, candidati: List<String>): List<String>? {
+        val out = candidati.mapNotNull { c ->
+            val compatto = StringBuilder(c.filterNot { it.isWhitespace() })
+            if (compatto.length != s.gruppi.size) return@mapNotNull null
+            for ((i, ch) in s.forzati) compatto.setCharAt(i, ch)
+            compatto.toString()
+        }.distinct()
+        return out.ifEmpty { null }
+    }
+
+    /** Ripiego: si leggono a parte i pezzi tra un simbolo forzato e l'altro. */
+    private suspend fun aPezzi(s: Sequenza, pre: String, lettore: Lettore): List<String> {
+        val pezzi = ArrayList<Pair<List<Gruppo>, Char?>>()
+        var corrente = ArrayList<Gruppo>()
+        for ((i, g) in s.gruppi.withIndex()) {
+            val f = s.forzati[i]
+            if (f == null) { corrente += g; continue }
+            pezzi += corrente to f
+            corrente = ArrayList()
+        }
+        pezzi += corrente to null
+        val letture = pezzi.map { (gruppi, _) ->
+            if (gruppi.isEmpty()) listOf("")
+            else lettore.leggi(Sequenza(gruppi, s.h).tratti, pre, 2f * s.h).ifEmpty { return emptyList() }
+        }
+        // La prima lettura di ogni pezzo, poi le successive tutte insieme: bastano come ripiego.
+        return (0 until letture.maxOf { it.size }).map { k ->
+            pezzi.indices.joinToString("") { i -> letture[i][minOf(k, letture[i].lastIndex)].trim() + (pezzi[i].second ?: "") }
+        }.distinct()
     }
 
     /** Scelte di una lettura per ogni pezzo, per somma crescente delle posizioni (le piu' probabili prima). */

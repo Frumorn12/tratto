@@ -58,7 +58,7 @@ class CalcolatoreTest {
             r!!
             assertEquals("19", r.valore)
             assertEquals("12+7", r.espressione)
-            assertEquals(listOf("12", "7"), lettore.letti)
+            assertEquals(listOf("12+7"), lettore.letti)
             // A destra dell'uguale, cifre alte come quelle scritte, sulla stessa linea di base.
             val destraUguale = uguale.maxOf { t -> t.xs().max() }
             assertTrue(r.tratti.isNotEmpty())
@@ -120,7 +120,7 @@ class CalcolatoreTest {
         val r = chiudi(q, uguale, lettore)!!
         assertEquals("2", r.valore)
         assertEquals("(1+2)/3+1", r.espressione)
-        assertEquals(listOf("1", "2", "3", "1"), lettore.letti)
+        assertEquals(listOf("1+2", "3", "+1"), lettore.letti)
     }
 
     @Test
@@ -212,7 +212,7 @@ class CalcolatoreTest {
         val r = chiudi(q, uguale, lettore)!!
         assertEquals("5", r.valore)
         assertEquals("√(16+9)", r.espressione)
-        assertEquals(listOf("16", "9"), lettore.letti)
+        assertEquals(listOf("16+9"), lettore.letti)
     }
 
     @Test
@@ -376,7 +376,7 @@ class CalcolatoreTest {
         val lettore = LettoreFinto(q)
         val r = chiudi(q, uguale, lettore)!!
         assertEquals("4", r.valore)
-        assertEquals(listOf("2", "2"), lettore.letti)
+        assertEquals(listOf("2+2"), lettore.letti)
     }
 
     @Test
@@ -391,7 +391,7 @@ class CalcolatoreTest {
         val uguale = q.uguale(x + 0.3f * h, q.asse(BASE))
         val lettore = LettoreFinto(q)
         assertEquals("4", chiudi(q, uguale, lettore)!!.valore)
-        assertEquals(listOf("2", "2"), lettore.letti)
+        assertEquals(listOf("2+2"), lettore.letti)
     }
 
     @Test
@@ -590,14 +590,29 @@ class CalcolatoreTest {
         val h = q.hCifre
         val asse = q.asse(BASE)
         var x = q.scrivi("6", 100f, BASE) + 0.3f * h
-        q.tratto(x + 0.35f * h, asse - 0.55f * h, x + 0.32f * h, asse + 0.5f * h, testo = "1")
-        q.tratto(x, asse + 0.02f * h, x + 0.7f * h, asse - 0.03f * h, testo = "1")
+        val asta = q.trattoFuori(x + 0.35f * h, asse - 0.55f * h, x + 0.32f * h, asse + 0.5f * h)
+        val barra = q.trattoFuori(x, asse + 0.02f * h, x + 0.7f * h, asse - 0.03f * h)
+        q.registra(listOf(asta, barra), "1")
         x = q.scrivi("5", x + h, BASE)
         val lettore = LettoreFinto(q)
         val r = chiudi(q, q.uguale(x + 0.3f * h, asse), lettore)
         assertNotNull(r)
         assertEquals("11", r!!.valore)
-        assertEquals(listOf("6", "5"), lettore.letti)
+        // Si legge la riga intera (il contesto aiuta ML Kit con le cifre) e il piu' si rimette a posto.
+        assertEquals(listOf("615"), lettore.letti)
+    }
+
+    @Test
+    fun piuFuoriPostoSiLeggeAPezzi() {
+        // Se ML Kit non legge un carattere per simbolo, si rilegge a pezzi attorno al piu'.
+        val q = Quaderno()
+        val h = q.hCifre
+        val asse = q.asse(BASE)
+        val fine = q.scrivi("6+5", 100f, BASE)
+        val lettore = LettoreFinto(q, mapOf("6+5" to listOf("6t 15")))
+        val r = chiudi(q, q.uguale(fine + 0.3f * h, asse), lettore)
+        assertEquals("11", r?.valore)
+        assertEquals(listOf("6+5", "6", "5"), lettore.letti)
     }
 
     @Test
