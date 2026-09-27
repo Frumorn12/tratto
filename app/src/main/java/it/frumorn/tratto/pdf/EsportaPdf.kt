@@ -11,6 +11,7 @@ import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.PixelFormat
 import android.graphics.RenderNode
+import android.graphics.pdf.PdfDocument
 import android.graphics.pdf.PdfRenderer
 import android.hardware.HardwareBuffer
 import android.media.ImageReader
@@ -23,19 +24,30 @@ import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
 import com.tom_roush.pdfbox.io.MemoryUsageSetting
 import com.tom_roush.pdfbox.pdmodel.PDDocument
 import com.tom_roush.pdfbox.pdmodel.encryption.InvalidPasswordException
+import com.tom_roush.pdfbox.pdmodel.graphics.image.JPEGFactory
+import com.tom_roush.pdfbox.pdmodel.graphics.image.LosslessFactory
+import com.tom_roush.pdfbox.pdmodel.graphics.image.PDImageXObject
 import it.frumorn.tratto.data.Archivio
 import it.frumorn.tratto.data.Foglio
+import it.frumorn.tratto.data.Immagine
 import it.frumorn.tratto.data.NotaInfo
+import it.frumorn.tratto.data.Oggetto
 import it.frumorn.tratto.data.Pagina
 import it.frumorn.tratto.data.Penna
 import it.frumorn.tratto.data.Sfondo
+import it.frumorn.tratto.data.Testo
 import it.frumorn.tratto.data.Tratto
+import it.frumorn.tratto.editor.Anteprima
+import it.frumorn.tratto.editor.Impaginazione
+import it.frumorn.tratto.editor.ImmaginiEditor
 import it.frumorn.tratto.ink.Pennelli
 import java.io.BufferedOutputStream
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FilterOutputStream
 import java.io.IOException
 import java.io.OutputStream
+import kotlin.math.ceil
 import kotlin.math.max
 import kotlin.math.roundToInt
 
@@ -74,10 +86,95 @@ object EsportaPdf {
         val memoria = MemoryUsageSetting.setupMixed(MEMORIA_MAX).setTempDir(context.cacheDir)
         val allegato = file.exists()
         val doc = if (allegato) apri(file, memoria) else PDDocument(memoria)
-        doc.use {
-            ScrittorePdf.componi(doc, allegato, pagine, titolo(info)) { p -> trattiPdf(archivio.tratti(info.id, p.id)) }
-            // PdfBox chiude lo stream che riceve: gli diamo un involucro che non chiude quello di chi chiama.
-            BufferedOutputStream(NonChiudere(out), 64 * 1024).use { doc.save(it) }
+        // I PDF dei livelli di testo restano aperti fino al salvataggio: il documento li riferisce.
+        val livelli = ArrayList<PDDocument>()
+        try {
+            doc.use {
+                ScrittorePdf.componi(
+                    doc, allegato, pagine, titolo(info),
+                    oggetti = { p -> oggettiPdf(archivio, info, p, livelli) },
+                ) { p -> trattiPdf(archivio.tratti(info.id, p.id)) }
+                // PdfBox chiude lo stream che riceve: gli diamo un involucro che non chiude quello di chi chiama.
+                BufferedOutputStream(NonChiudere(out), 64 * 1024).use { doc.save(it) }
+            }
+        } finally {
+            livelli.forEach { runCatching { it.close() } }
+        }
+    }
+
+    /**
+     * Gli oggetti di una pagina per il PDF, nell'ordine di disegno. Le immagini restano immagini (JPEG,
+     * o senza perdita se hanno trasparenza); le caselle di testo vicine nell'ordine si disegnano insieme
+     * su una pagina PDF di Android, che scrive testo vero con i caratteri incorporati, e quella pagina
+     * diventa un livello del PDF esportato.
+     */
+    private fun oggettiPdf(archivio: Archivio, info: NotaInfo, p: Pagina, aperti: MutableList<PDDocument>): List<OggettoPdf> {
+        val oggetti = archivio.oggetti(info.id, p.id)
+        if (oggetti.isEmpty()) return emptyList()
+        val out = ArrayList<OggettoPdf>()
+        val testi = ArrayList<Testo>()
+        fun chiudiTesti() {
+            if (testi.isEmpty()) return
+            livelloTesto(testi, p.altezza)?.let { (sorgente, livello) -> aperti += sorgente; out += livello }
+            testi.clear()
+        }
+        for (o in oggetti) {
+            when (o) {
+                is Testo -> testi += o
+                is Immagine -> {
+                    chiudiTesti()
+                    val f = archivio.fileImmagine(info.id, o.file)
+                    out += ImmaginePdf(o.x, o.y, o.larghezza, o.altezza) { d -> immaginePdf(d, f, o.larghezza) }
+                }
+            }
+        }
+        chiudiTesti()
+        return out
+    }
+
+    /** Le caselle [testi] su una pagina PDF larga 1000 punti (uno per unita'), aperta con PdfBox. */
+    private fun livelloTesto(testi: List<Testo>, altezza: Float): Pair<PDDocument, LivelloPdf>? {
+        val h = ceil(altezza).toInt().coerceAtLeast(1)
+        val pdf = PdfDocument()
+        val dati = try {
+            val pagina = pdf.startPage(PdfDocument.PageInfo.Builder(Foglio.LARGHEZZA.toInt(), h, 1).create())
+            val c = pagina.canvas
+            for (t in testi) {
+                val s = c.save()
+                c.translate(t.x, t.y)
+                Impaginazione.impagina(t).disegna(c)
+                c.restoreToCount(s)
+            }
+            pdf.finishPage(pagina)
+            ByteArrayOutputStream().also { pdf.writeTo(it) }.toByteArray()
+        } catch (e: Exception) {
+            Log.w(TAG, "Caselle di testo non esportate", e)
+            return null
+        } finally {
+            pdf.close()
+        }
+        val sorgente = try {
+            PDDocument.load(dati)
+        } catch (e: IOException) {
+            Log.w(TAG, "Livello del testo illeggibile", e)
+            return null
+        }
+        return sorgente to LivelloPdf(sorgente, 0, h.toFloat())
+    }
+
+    /**
+     * L'immagine per il PDF, a circa 300 dpi sulla pagina A4 (e mai piu' grande del file). Le foto vanno
+     * in JPEG; le immagini con trasparenza senza perdita, con la loro maschera.
+     */
+    private fun immaginePdf(doc: PDDocument, file: File, larghezza: Float): PDImageXObject? {
+        val bmp = ImmaginiEditor.decodifica(file, (larghezza * 3.5f).toInt().coerceIn(1, 2048), hardware = false) ?: return null
+        return try {
+            if (bmp.hasAlpha()) LosslessFactory.createFromImage(doc, bmp) else JPEGFactory.createFromImage(doc, bmp, 0.9f)
+        } catch (e: IOException) {
+            Log.w(TAG, "Immagine non esportata: ${file.name}", e)
+            null
+        } finally {
+            bmp.recycle()
         }
     }
 
@@ -133,6 +230,7 @@ object EsportaPdf {
         pagina: Pagina,
         larghezzaPx: Int,
         tratti: List<Tratto> = archivio.tratti(info.id, pagina.id),
+        oggetti: List<Oggetto> = archivio.oggetti(info.id, pagina.id),
     ): Bitmap {
         val scala = minOf(larghezzaPx.coerceIn(1, LATO_MAX_PX) / Foglio.LARGHEZZA, LATO_MAX_PX / pagina.altezza)
         val w = (Foglio.LARGHEZZA * scala).roundToInt().coerceAtLeast(1)
@@ -140,7 +238,11 @@ object EsportaPdf {
 
         val fondo = if (pagina.pdfPagina >= 0) paginaPdf(archivio.filePdf(info.id), pagina.pdfPagina, w, h) else null
         val strokes = tratti.mapNotNull { t -> Pennelli.stroke(t)?.let { t to it } }
-        val disegna = { c: Canvas -> disegnaPagina(c, pagina, fondo, strokes, scala) }
+        val disegna = { c: Canvas ->
+            disegnaPagina(c, pagina, fondo, strokes, scala) { cs ->
+                Anteprima.disegnaOggetti(cs, oggetti, w.toFloat()) { archivio.fileImmagine(info.id, it) }
+            }
+        }
         try {
             return try {
                 disegnaInHardware(w, h, disegna)
@@ -187,7 +289,8 @@ object EsportaPdf {
         }
     }
 
-    private fun disegnaPagina(c: Canvas, pagina: Pagina, fondo: Bitmap?, strokes: List<Pair<Tratto, Stroke>>, scala: Float) {
+    /** Carta, sfondo, oggetti (con [oggetti], sul canvas in unita' di pagina) e tratti. */
+    private fun disegnaPagina(c: Canvas, pagina: Pagina, fondo: Bitmap?, strokes: List<Pair<Tratto, Stroke>>, scala: Float, oggetti: (Canvas) -> Unit) {
         c.drawColor(Color.WHITE)
         if (fondo != null) {
             c.drawBitmap(fondo, 0f, 0f, Paint(Paint.FILTER_BITMAP_FLAG))
@@ -204,6 +307,7 @@ object EsportaPdf {
         val pMatita = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
         c.save()
         c.concat(m)
+        oggetti(c)
         for ((t, s) in strokes) {
             if (!c.isHardwareAccelerated && t.penna == Penna.MATITA) {
                 // Ripiego senza GPU: contorno pieno con l'opacita' media, come nel PDF.

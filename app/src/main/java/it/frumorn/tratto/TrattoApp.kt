@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.Context
 import androidx.work.Configuration
 import it.frumorn.tratto.data.Archivio
+import it.frumorn.tratto.editor.Caratteri
 
 /**
  * Applicazione: tiene l'archivio delle note, creato al primo uso e condiviso da tutte le schermate.
@@ -13,6 +14,12 @@ import it.frumorn.tratto.data.Archivio
  */
 class TrattoApp : Application(), Configuration.Provider {
     val archivio: Archivio by lazy { Archivio(this) }
+
+    override fun onCreate() {
+        super.onCreate()
+        // Solo il riferimento al contesto: i caratteri delle caselle di testo si caricano al primo uso.
+        Caratteri.prepara(this)
+    }
 
     override val workManagerConfiguration: Configuration
         get() = Configuration.Builder().build()

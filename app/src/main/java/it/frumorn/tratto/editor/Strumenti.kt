@@ -2,7 +2,8 @@ package it.frumorn.tratto.editor
 
 import it.frumorn.tratto.data.Penna
 
-enum class Strumento { PENNA, GOMMA, LAZO }
+/** TESTO: toccando la pagina si crea (o si modifica) una casella di testo. */
+enum class Strumento { PENNA, GOMMA, LAZO, TESTO }
 
 enum class ModoGomma { TRATTO, PARZIALE }
 

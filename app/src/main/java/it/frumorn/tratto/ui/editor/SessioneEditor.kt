@@ -50,6 +50,24 @@ class SessioneEditor(private val stato: StatoApp, val id: String, context: Conte
     var titolo by mutableStateOf("")
         private set
 
+    /** L'oggetto (immagine o casella di testo) selezionato con un tocco, per la sua barra. */
+    var oggetto by mutableStateOf<it.frumorn.tratto.data.Oggetto?>(null)
+        private set
+    /** Cresce a ogni cambio dell'oggetto selezionato, anche quando resta uguale (ordine di disegno). */
+    var versioneOggetto by mutableIntStateOf(0)
+        private set
+    /** Il campo della casella di testo che si sta scrivendo, o null. */
+    var campoTesto by mutableStateOf<it.frumorn.tratto.editor.CampoTesto?>(null)
+        private set
+    /** Il formato sotto il cursore della casella in modifica (per i pulsanti della barra del testo). */
+    var formato by mutableStateOf(it.frumorn.tratto.data.Formato())
+        private set
+    /** Dove si e' tenuto premuto il dito (sullo schermo) per il menu incolla/inserisci, o null. */
+    var menuContestuale by mutableStateOf<androidx.compose.ui.geometry.Offset?>(null)
+    /** Il dito scrive come la penna (preferenza, cambiata dalla tavolozza). */
+    var disegnaConDita by mutableStateOf(stato.preferenze.disegnaConDita)
+        private set
+
     private var pdf: PdfSfondo? = null
     private var salvataggio: Job? = null
     private var chiusa = false
@@ -72,8 +90,28 @@ class SessioneEditor(private val stato: StatoApp, val id: String, context: Conte
         vista.alTiraPagina = { aggiungiPagina() }
         vista.alPennaGiu = { suggerimento.nascondi() }
         vista.alMovimento = { if (suggerimento.proposta != null) suggerimento.nascondi() }
+        vista.alCambioOggetto = { oggetto = it; versioneOggetto++ }
+        vista.alCampoTesto = { c ->
+            campoTesto = c
+            if (c != null) {
+                c.alCambioFormato = { formato = it }
+                formato = c.formato()
+            }
+        }
+        vista.alPressioneLunga = { x, y -> menuContestuale = androidx.compose.ui.geometry.Offset(x, y) }
         applicaColori()
     }
+
+    /** Accende o spegne "disegna con il dito" (un dito scrive, due scorrono e zoomano). */
+    fun alternaDita() {
+        val v = !disegnaConDita
+        disegnaConDita = v
+        vista.disegnaConDita = v
+        stato.preferenze.impostaDita(v)
+    }
+
+    /** Oggetti della pagina: immagini, caselle di testo, appunti (vedi OggettiSessione.kt). */
+    val oggetti = OggettiSessione(this, stato, context.applicationContext)
 
     fun applicaColori(scuro: Boolean = false, carta: Int = 0xFFFFFFFF.toInt(), scrivania: Int = 0xFFF2F2F4.toInt(), righe: Int = 0xFFD9D6EC.toInt()) {
         vista.foglio.colorePagina = carta
@@ -136,8 +174,11 @@ class SessioneEditor(private val stato: StatoApp, val id: String, context: Conte
 
     fun annulla() {
         suggerimento.nascondi()
+        // Una casella aperta si chiude prima: "annulla" toglie poi tutto quello che ci si e' scritto.
+        vista.chiudiTesto()
         documento?.annulla()
         vista.chiudiSelezione()
+        vista.deselezionaOggetto()
         vista.ridisegna()
         aggiornaStato()
         programmaSalvataggio()
@@ -145,8 +186,10 @@ class SessioneEditor(private val stato: StatoApp, val id: String, context: Conte
 
     fun ripeti() {
         suggerimento.nascondi()
+        vista.chiudiTesto()
         documento?.ripeti()
         vista.chiudiSelezione()
+        vista.deselezionaOggetto()
         vista.ridisegna()
         aggiornaStato()
         programmaSalvataggio()
@@ -164,6 +207,10 @@ class SessioneEditor(private val stato: StatoApp, val id: String, context: Conte
 
     fun eliminaPagina() {
         val d = documento ?: return
+        // Selezioni e caselle aperte si riferiscono alle pagine per posizione: si chiudono prima.
+        vista.chiudiTesto()
+        vista.chiudiSelezione()
+        vista.deselezionaOggetto()
         d.eliminaPagina(vista.foglio.paginaCorrente())
         vista.foglio.dimenticaCache()
         vista.ridisegna()
@@ -305,10 +352,45 @@ class SessioneEditor(private val stato: StatoApp, val id: String, context: Conte
         programmaSalvataggio()
     }
 
-    fun copia() { stato.appunti = vista.copiaSelezione() }
+    fun copia() {
+        stato.appunti = vista.copiaSelezione()
+        val d = documento
+        stato.appuntiOggetti = vista.copiaOggettiSelezione().map { o ->
+            o to (o as? it.frumorn.tratto.data.Immagine)?.let { d?.fileImmagine(it.file) }
+        }
+    }
+
     fun taglia() { copia(); vista.eliminaSelezione() }
-    fun incolla() { vista.incolla(stato.appunti) }
-    val haAppunti get() = stato.appunti.isNotEmpty()
+
+    /**
+     * Incolla tratti e oggetti copiati con il lazo. Le immagini che vengono da un'altra nota si
+     * ricopiano prima in questa (in sottofondo), cosi' ogni nota resta completa da sola.
+     */
+    fun incolla() {
+        val d = documento ?: return
+        val tratti = stato.appunti
+        val oggetti = stato.appuntiOggetti
+        if (oggetti.isEmpty()) { vista.incolla(tratti); return }
+        stato.scope.launch {
+            val pronti = withContext(Dispatchers.IO) {
+                oggetti.mapNotNull { (o, f) ->
+                    val id = it.frumorn.tratto.data.Archivio.nuovoId()
+                    when (o) {
+                        is it.frumorn.tratto.data.Testo -> o.copy(id = id)
+                        is it.frumorn.tratto.data.Immagine -> {
+                            val sorgente = f?.takeIf { it.isFile } ?: return@mapNotNull null
+                            val file = if (sorgente == d.fileImmagine(o.file)) o.file
+                            else runCatching { d.salvaImmagine(sorgente.extension) { out -> sorgente.inputStream().use { it.copyTo(out) } } }.getOrNull()
+                            file?.let { o.copy(id = id, file = it) }
+                        }
+                    }
+                }
+            }
+            if (!chiusa) vista.incolla(tratti, pronti)
+        }
+    }
+
+    val haAppunti get() = stato.appunti.isNotEmpty() || stato.appuntiOggetti.isNotEmpty()
 
     fun programmaSalvataggio() {
         salvataggio?.cancel()
@@ -323,6 +405,8 @@ class SessioneEditor(private val stato: StatoApp, val id: String, context: Conte
     /** Salva, aggiorna la copertina e libera le risorse. */
     fun chiudi() {
         if (chiusa) return
+        // La casella di testo aperta si salva con il resto.
+        vista.chiudiTesto()
         chiusa = true
         suggerimento.nascondi()
         salvataggio?.cancel()
@@ -334,6 +418,8 @@ class SessioneEditor(private val stato: StatoApp, val id: String, context: Conte
                     val cambiata = d.modificato
                     d.salva()
                     GoogleDocs.finisciInBackground(contesto, id, cambiata)
+                    // Ora che la cronologia non serve piu', le immagini tolte possono sparire dal disco.
+                    runCatching { stato.archivio.immaginiOrfane(id) }
                     val copertinaMancante = !stato.archivio.fileAnteprima(id).exists()
                     if (cambiata || copertinaMancante) runCatching { Anteprima.crea(stato.archivio, d, p) }
                 }
@@ -345,6 +431,7 @@ class SessioneEditor(private val stato: StatoApp, val id: String, context: Conte
 
     /** Salva tutto e attende la fine: da chiamare prima di esportare. */
     suspend fun salvaEAttendi(): NotaInfo? {
+        vista.chiudiTesto()
         salvataggio?.cancel()
         val d = documento ?: return null
         withContext(Dispatchers.IO) { d.salva() }
@@ -353,14 +440,15 @@ class SessioneEditor(private val stato: StatoApp, val id: String, context: Conte
 
     fun paginaCorrente() = documento?.pagine?.getOrNull(vista.foglio.paginaCorrente())?.pagina
 
-    /** Vero se la pagina corrente non ha niente da perdere: niente tratti e niente PDF sotto. */
+    /** Vero se la pagina corrente non ha niente da perdere: niente tratti, niente oggetti e niente PDF sotto. */
     fun paginaVuota(): Boolean {
         val p = documento?.pagine?.getOrNull(vista.foglio.paginaCorrente()) ?: return true
-        return p.caricata && p.tratti.isEmpty() && p.pagina.pdfPagina < 0
+        return p.caricata && p.tratti.isEmpty() && p.oggetti.isEmpty() && p.pagina.pdfPagina < 0
     }
 
-    /** Salvataggio immediato quando l'app va in secondo piano. */
+    /** Salvataggio immediato quando l'app va in secondo piano (anche la casella di testo aperta). */
     fun salvaOra() {
+        vista.chiudiTesto()
         salvataggio?.cancel()
         val d = documento ?: return
         stato.scope.launch(Dispatchers.IO) {

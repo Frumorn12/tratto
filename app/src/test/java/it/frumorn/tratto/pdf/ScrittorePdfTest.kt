@@ -12,6 +12,9 @@ import com.tom_roush.pdfbox.pdmodel.common.PDRectangle
 import com.tom_roush.pdfbox.pdmodel.encryption.AccessPermission
 import com.tom_roush.pdfbox.pdmodel.encryption.StandardProtectionPolicy
 import com.tom_roush.pdfbox.pdmodel.graphics.blend.BlendMode
+import com.tom_roush.pdfbox.pdmodel.graphics.color.PDDeviceRGB
+import com.tom_roush.pdfbox.pdmodel.graphics.image.PDImageXObject
+import java.io.ByteArrayInputStream
 import it.frumorn.tratto.data.Pagina
 import it.frumorn.tratto.data.Sfondo
 import org.junit.Assert.assertEquals
@@ -111,6 +114,68 @@ class ScrittorePdfTest {
         String(p.contentStreams.asSequence().last().toByteArray(), Charsets.ISO_8859_1)
 
     private fun contaRiempimenti(s: String) = Regex("(?m)^f$").findAll(s).count()
+
+    /** I numeri dell'operatore cm che precede l'n-esimo "Do" del contenuto. */
+    private fun matricePrimaDi(contenuto: String, n: Int): List<Float> {
+        val righe = contenuto.lines()
+        val doRighe = righe.withIndex().filter { it.value.endsWith(" Do") }.map { it.index }
+        val cm = righe.subList(0, doRighe[n]).last { it.endsWith(" cm") }
+        return cm.removeSuffix(" cm").trim().split(' ').map { it.toFloat() }
+    }
+
+    @Test
+    fun oggettiSottoITrattiConImmaginiELivelliDiTesto() {
+        val livelloDati = PDDocument().use { l ->
+            val p = PDPage(PDRectangle(1000f, 1414f))
+            l.addPage(p)
+            PDPageContentStream(l, p).use { cs -> cs.addComment("livello-testo"); cs.addRect(0f, 0f, 10f, 10f); cs.fill() }
+            ByteArrayOutputStream().also { l.save(it) }.toByteArray()
+        }
+        val bytes = PDDocument.load(livelloDati).use { livello ->
+            PDDocument().use { doc ->
+                var create = 0
+                val oggetti = listOf(
+                    ImmaginePdf(100f, 200f, 300f, 150f) { d ->
+                        create++
+                        PDImageXObject(d, ByteArrayInputStream(byteArrayOf(1, 2, 3)), COSName.DCT_DECODE, 2, 2, 8, PDDeviceRGB.INSTANCE)
+                    },
+                    ImmaginePdf(0f, 0f, 10f, 10f) { null },
+                    LivelloPdf(livello, 0, 1414f),
+                )
+                ScrittorePdf.componi(doc, false, listOf(Pagina("a", Sfondo.BIANCO)), "Prova", oggetti = { oggetti }) {
+                    listOf(TrattoPdf(nero, listOf(quadrato(10f, 10f, 5f))))
+                }
+                assertEquals(1, create)
+                ByteArrayOutputStream().also { doc.save(it) }.toByteArray()
+            }
+        }
+
+        PDDocument.load(bytes).use { doc ->
+            val p = doc.getPage(0)
+            val nomi = p.resources.xObjectNames.toList()
+            assertEquals("un'immagine e un livello (l'immagine illeggibile si salta)", 2, nomi.size)
+            val tipi = nomi.map { p.resources.getXObject(it) }
+            assertTrue(tipi.any { it is PDImageXObject })
+            val form = tipi.filterIsInstance<com.tom_roush.pdfbox.pdmodel.graphics.form.PDFormXObject>().single()
+            assertTrue(String(form.contentStream.toByteArray(), Charsets.ISO_8859_1).contains("livello-testo"))
+
+            val c = contenuto(p)
+            // Prima l'immagine, poi il testo, poi l'inchiostro.
+            val primoDo = c.indexOf(" Do")
+            val secondoDo = c.indexOf(" Do", primoDo + 1)
+            assertTrue(primoDo in 0 until secondoDo)
+            assertTrue("i tratti stanno sopra", Regex("(?m)^f$").find(c)!!.range.first > secondoDo)
+
+            val s = A4_LARGHEZZA_PT / 1000f
+            // Immagine: quadrato unitario -> riquadro (100, 200, 300 x 150) con la y girata.
+            val mi = matricePrimaDi(c, 0)
+            val attesa = listOf(300f * s, 0f, 0f, 150f * s, 100f * s, A4_ALTEZZA_PT - 350f * s)
+            attesa.zip(mi).forEach { (a, b) -> assertEquals(a, b, 0.01f) }
+            // Livello: un punto per unita', origine in basso.
+            val ml = matricePrimaDi(c, 1)
+            listOf(s, 0f, 0f, s, 0f, A4_ALTEZZA_PT - 1414f * s).zip(ml).forEach { (a, b) -> assertEquals(a, b, 0.01f) }
+        }
+    }
 
     @Test
     fun bouncyCastleNonCe() {

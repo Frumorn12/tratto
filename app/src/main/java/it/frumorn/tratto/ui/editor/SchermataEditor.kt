@@ -29,6 +29,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -142,6 +144,11 @@ fun SharedTransitionScope.SchermataEditor(
 
     var pannello by remember { mutableStateOf(false) }
     val forma = MaterialTheme.shapes.extraLarge
+    val scegliImmagine = rememberSceltaImmagine(sessione)
+
+    // Indietro chiude prima la casella di testo in modifica, poi la selezione dell'oggetto, e solo dopo la nota.
+    androidx.activity.compose.BackHandler(enabled = sessione.oggetto != null && sessione.campoTesto == null) { sessione.oggetti.chiudi() }
+    androidx.activity.compose.BackHandler(enabled = sessione.campoTesto != null) { sessione.vista.chiudiTesto() }
 
     Box(
         Modifier
@@ -167,7 +174,7 @@ fun SharedTransitionScope.SchermataEditor(
             Column(Modifier.onGloballyPositioned { sessione.vista.foglio.spazioSopra = it.size.height.toFloat() }) {
                 BarraSuperiore(stato, sessione, Modifier.maschera("barra"))
                 Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
-                    Tavolozza(sessione, pannello, onPannello = { pannello = it }, modifier = Modifier.padding(top = 12.dp, bottom = 12.dp).maschera("tavolozza"))
+                    Tavolozza(sessione, pannello, onPannello = { pannello = it }, scegliImmagine, modifier = Modifier.padding(top = 12.dp, bottom = 12.dp).maschera("tavolozza"))
                 }
             }
             Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
@@ -219,7 +226,32 @@ fun SharedTransitionScope.SchermataEditor(
             }
         }
 
+        // Barra dell'immagine o della casella di testo selezionata.
+        AnimatedVisibility(
+            visible = sessione.oggetto != null && sessione.campoTesto == null,
+            modifier = Modifier.align(Alignment.BottomCenter).windowInsetsPadding(WindowInsets.navigationBars).padding(bottom = 28.dp),
+            enter = slideInVertically(tween(TrattoMotion.ENTER_MS, easing = TrattoMotion.Enter)) { it } + fadeIn(),
+            exit = slideOutVertically(tween(TrattoMotion.EXIT_MS, easing = TrattoMotion.Exit)) { it } + fadeOut(),
+        ) {
+            DisposableEffect(Unit) { onDispose { maschere.remove("oggetto") } }
+            BarraOggetto(sessione, Modifier.maschera("oggetto"))
+        }
+
         IndicatorePagina(sessione, Modifier.align(Alignment.BottomEnd).windowInsetsPadding(WindowInsets.navigationBars).padding(20.dp))
+
+        // Barra di formato della casella di testo, sopra la tastiera.
+        if (sessione.campoTesto != null) {
+            DisposableEffect(Unit) { onDispose { maschere.remove("testo"); sessione.vista.spazioSotto = 0f } }
+            BarraTesto(
+                sessione,
+                Modifier.align(Alignment.BottomCenter)
+                    .windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navigationBars))
+                    .maschera("testo")
+                    .onGloballyPositioned { c -> sessione.vista.spazioSotto = (sessione.vista.height - c.boundsInRoot().top).coerceAtLeast(0f) },
+            )
+        }
+
+        MenuContestuale(sessione, scegliImmagine)
     }
 }
 
@@ -343,9 +375,9 @@ private fun nomePenna(p: Penna) = when (p) {
     Penna.PENNELLO -> "Pennello"
 }
 
-/** La barra degli strumenti: penne, gomma, lazo e il colore corrente. */
+/** La barra degli strumenti: penne, gomma, lazo, testo, immagini, dito e il colore corrente. */
 @Composable
-private fun Tavolozza(s: SessioneEditor, pannelloAperto: Boolean, onPannello: (Boolean) -> Unit, modifier: Modifier) {
+private fun Tavolozza(s: SessioneEditor, pannelloAperto: Boolean, onPannello: (Boolean) -> Unit, scegliImmagine: (Offset?) -> Unit, modifier: Modifier) {
     val st = s.strumenti
     Surface(
         shape = CircleShape,
@@ -369,6 +401,16 @@ private fun Tavolozza(s: SessioneEditor, pannelloAperto: Boolean, onPannello: (B
             BottoneIcona(R.drawable.ic_lasso_select, "Lazo", selezionato = st.strumento == Strumento.LAZO) {
                 if (st.strumento == Strumento.LAZO) onPannello(!pannelloAperto) else s.cambiaStrumenti(st.copy(strumento = Strumento.LAZO))
             }
+            BottoneIcona(R.drawable.ic_title, "Testo", selezionato = st.strumento == Strumento.TESTO) {
+                if (st.strumento == Strumento.TESTO) onPannello(!pannelloAperto) else s.cambiaStrumenti(st.copy(strumento = Strumento.TESTO))
+            }
+            VerticalDivider(Modifier.height(28.dp).padding(horizontal = 6.dp), color = MaterialTheme.colorScheme.outlineVariant)
+            BottoneIcona(R.drawable.ic_add_photo_alternate, "Inserisci immagine") { scegliImmagine(null) }
+            BottoneIcona(
+                R.drawable.ic_pan_tool,
+                if (s.disegnaConDita) "Disegna con il dito: attivo" else "Disegna con il dito",
+                selezionato = s.disegnaConDita,
+            ) { s.alternaDita() }
             VerticalDivider(Modifier.height(28.dp).padding(horizontal = 6.dp), color = MaterialTheme.colorScheme.outlineVariant)
             // Colore e spessore correnti: apre il pannello.
             val imp = st.corrente
@@ -414,7 +456,13 @@ private fun PannelloStrumento(s: SessioneEditor, onChiudi: () -> Unit, modifier:
                 Strumento.LAZO -> {
                     Text("Lazo", style = MaterialTheme.typography.titleMedium)
                     Spacer(Modifier.height(6.dp))
-                    Text("Circonda con la penna i tratti da spostare, ridimensionare, colorare o copiare. Il pallino in basso a destra ridimensiona.",
+                    Text("Circonda con la penna i tratti da spostare, ridimensionare, colorare o copiare: anche immagini e caselle di testo si spostano insieme. Il pallino in basso a destra ridimensiona. Un tocco su un'immagine o una casella la seleziona.",
+                        style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Strumento.TESTO -> {
+                    Text("Testo", style = MaterialTheme.typography.titleMedium)
+                    Spacer(Modifier.height(6.dp))
+                    Text("Tocca la pagina, con la penna o con il dito, per scrivere in una casella di testo; tocca una casella per modificarla. Con la penna puoi anche tirare in orizzontale per scegliere quanto e' larga. I pulsanti sopra la tastiera cambiano stile, carattere, colori, allineamento ed elenchi, come in Documenti.",
                         style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
@@ -609,10 +657,13 @@ private fun PannelloTrascrizione(stato: StatoApp, s: SessioneEditor, modifier: M
 }
 
 @Composable
-private fun AzioneSelezione(icona: Int, nome: String, onClick: () -> Unit) {
+internal fun AzioneSelezione(icona: Int, nome: String, attivo: Boolean = true, onClick: () -> Unit) {
     val interazione = remember { MutableInteractionSource() }
     Column(
-        Modifier.premibile(interazione).clip(MaterialTheme.shapes.medium).clickable(interazione, androidx.compose.material3.ripple(), onClick = onClick).padding(horizontal = 14.dp, vertical = 8.dp),
+        Modifier.premibile(interazione).clip(MaterialTheme.shapes.medium)
+            .clickable(interazione, androidx.compose.material3.ripple(), enabled = attivo, onClick = onClick)
+            .graphicsLayer { alpha = if (attivo) 1f else 0.38f }
+            .padding(horizontal = 14.dp, vertical = 8.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Icona(icona, null, dimensione = 22.dp)

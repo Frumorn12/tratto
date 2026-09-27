@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import java.io.File
+import java.io.IOException
 import java.io.StringReader
 import java.io.StringWriter
 import java.util.UUID
@@ -19,6 +20,9 @@ import java.util.UUID
  *   files/tratto/indice.json              elenco di note e cartelle (basta per la libreria)
  *   files/tratto/note/<id>/nota.json      pagine della nota
  *   files/tratto/note/<id>/pagine/<p>.tp  tratti di ogni pagina (FormatoPagina)
+ *   files/tratto/note/<id>/pagine/<p>.oggetti.json
+ *                                         immagini e caselle di testo della pagina (FormatoOggetti), se ce ne sono
+ *   files/tratto/note/<id>/immagini/<i>.webp  immagini incollate o inserite, al massimo 2048 px di lato
  *   files/tratto/note/<id>/allegato.pdf   PDF importato, se c'e'
  *   files/tratto/note/<id>/anteprima.webp copertina per la libreria
  *
@@ -57,6 +61,10 @@ class Archivio(
     fun fileAnteprima(id: String) = File(cartellaNota(id), "anteprima.webp")
     fun filePdf(id: String) = File(cartellaNota(id), "allegato.pdf")
     private fun filePagina(notaId: String, paginaId: String) = File(cartellaNota(notaId), "pagine/$paginaId.tp")
+    private fun fileOggetti(notaId: String, paginaId: String) = File(cartellaNota(notaId), "pagine/$paginaId$OGGETTI")
+
+    /** File di un'immagine della nota; [file] e' il percorso relativo salvato nell'oggetto. */
+    fun fileImmagine(notaId: String, file: String) = File(cartellaNota(notaId), file)
 
     fun nuovaNota(sfondo: Sfondo, cartellaId: String?, titolo: String = ""): NotaInfo {
         val ora = System.currentTimeMillis()
@@ -115,14 +123,82 @@ class Archivio(
 
     fun eliminaPagina(notaId: String, paginaId: String) {
         filePagina(notaId, paginaId).delete()
+        fileOggetti(notaId, paginaId).delete()
     }
 
     /** Cancella i file delle pagine che non fanno piu' parte della nota. */
     fun pagineOrfane(notaId: String, vive: Set<String>) {
         File(cartellaNota(notaId), "pagine").listFiles()?.forEach { f ->
             if (f.name.endsWith(".tp") && f.nameWithoutExtension !in vive) f.delete()
+            if (f.name.endsWith(OGGETTI) && f.name.removeSuffix(OGGETTI) !in vive) f.delete()
         }
     }
+
+    /**
+     * Immagini e caselle di testo di una pagina. Le note di prima degli oggetti non hanno il file:
+     * la pagina ha solo tratti. Un file illeggibile si tratta come vuoto (e resta li' finche' la pagina
+     * non cambia), per non bloccare l'apertura della nota.
+     */
+    fun oggetti(notaId: String, paginaId: String): MutableList<Oggetto> {
+        val f = fileOggetti(notaId, paginaId)
+        if (!f.exists()) return mutableListOf()
+        return try {
+            FormatoOggetti.leggi(f.readText())
+        } catch (e: IOException) {
+            android.util.Log.w("Archivio", "Oggetti della pagina $paginaId illeggibili", e)
+            mutableListOf()
+        }
+    }
+
+    /** Salva gli oggetti di una pagina; senza oggetti il file si toglie, cosi' la pagina resta come prima. */
+    fun salvaOggetti(notaId: String, paginaId: String, oggetti: List<Oggetto>) {
+        val f = fileOggetti(notaId, paginaId)
+        if (oggetti.isEmpty()) f.delete() else scriviAtomico(f, FormatoOggetti.scrivi(oggetti).toByteArray())
+        tocca(notaId)
+    }
+
+    /**
+     * Scrive una nuova immagine nella nota con [scrivi] e restituisce il percorso da mettere
+     * nell'oggetto. Le immagini non si modificano mai: una copia o un ridimensionamento usano lo stesso file.
+     */
+    fun salvaImmagine(notaId: String, estensione: String = "webp", scrivi: (java.io.OutputStream) -> Unit): String {
+        val relativo = "immagini/${nuovoId()}.$estensione"
+        val f = File(cartellaNota(notaId), relativo)
+        f.parentFile?.mkdirs()
+        val tmp = File(f.parentFile, f.name + ".tmp")
+        tmp.outputStream().use { out ->
+            scrivi(out)
+            out.flush()
+            out.fd.sync()
+        }
+        if (!tmp.renameTo(f)) { tmp.delete(); throw IOException("Impossibile salvare l'immagine") }
+        return relativo
+    }
+
+    /**
+     * Cancella le immagini che nessuna pagina usa piu'. Si chiama alla chiusura della nota: finche' e'
+     * aperta, "annulla" puo' riportare in vita un'immagine tolta.
+     */
+    fun immaginiOrfane(notaId: String) {
+        val presenti = File(cartellaNota(notaId), "immagini").listFiles() ?: return
+        val usate = HashSet<String>()
+        File(cartellaNota(notaId), "pagine").listFiles()?.forEach { f ->
+            if (f.name.endsWith(OGGETTI)) {
+                oggetti(notaId, f.name.removeSuffix(OGGETTI)).forEach { o -> if (o is Immagine) usate += o.file }
+            }
+        }
+        for (f in presenti) if ("immagini/${f.name}" !in usate) f.delete()
+    }
+
+    /**
+     * Il testo di tutte le caselle di testo della nota, pagina per pagina e nell'ordine in cui sono
+     * disegnate, separate da una riga vuota. Serve a chi indicizza o copia altrove il contenuto delle note.
+     */
+    fun testoNota(notaId: String): String =
+        pagine(notaId).flatMap { p -> oggetti(notaId, p.id).filterIsInstance<Testo>() }
+            .map { it.contenuto.testoSemplice.trim() }
+            .filter { it.isNotEmpty() }
+            .joinToString("\n\n")
 
     fun rinomina(id: String, titolo: String) = aggiorna(id) { it.copy(titolo = titolo) }
     fun preferita(id: String, si: Boolean) = aggiorna(id) { it.copy(preferita = si) }
@@ -192,6 +268,9 @@ class Archivio(
     }
 
     companion object {
+        /** Suffisso dei file degli oggetti, accanto al .tp della pagina. */
+        const val OGGETTI = ".oggetti.json"
+
         fun nuovoId(): String = UUID.randomUUID().toString().replace("-", "").take(16)
 
         fun scriviIndice(note: List<NotaInfo>, cartelle: List<Cartella>): String {

@@ -20,11 +20,15 @@ manifest.json
 tratto/indice.json
 tratto/note/<id>/nota.json
 tratto/note/<id>/pagine/<pagina>.tp
+tratto/note/<id>/pagine/<pagina>.oggetti.json   (se la pagina ha immagini o caselle di testo)
+tratto/note/<id>/immagini/<immagine>.webp       (le immagini usate da quegli oggetti)
 tratto/note/<id>/allegato.pdf        (se la nota viene da un PDF)
 tratto/note/<id>/anteprima.webp
 ```
 
-La cartella `tratto/` è la copia di `files/tratto` dell'app, con il formato descritto in `Archivio.kt`.
+La cartella `tratto/` è la copia di `files/tratto` dell'app, con il formato descritto in `Archivio.kt`. Ogni nota entra con tutta la sua cartella, quindi anche i file degli oggetti e le immagini viaggiano con lei senza bisogno di altro; un backup fatto prima degli oggetti ha semplicemente pagine senza file `.oggetti.json`.
+
+Il file `.oggetti.json` di una pagina (formato in `FormatoOggetti.kt`) elenca immagini e caselle di testo nell'ordine in cui si disegnano, sotto i tratti. Le immagini sono riferite con un percorso relativo alla cartella della nota (`immagini/<id>.webp`), e non si modificano mai dopo essere state scritte: per questo anche loro si possono riportare con gli hard link (§2).
 
 `manifest.json` è la prima voce dello zip:
 
@@ -102,7 +106,7 @@ Le stesse regole valgono per il ripristino da Drive.
 |---|---|
 | Nota solo sul tablet | Resta com'è. |
 | Nota solo nel backup | Viene aggiunta (`aggiunte`). |
-| Nota su entrambi, **stesse pagine** (stessi `nota.json`, `.tp` e PDF; l'anteprima non conta) | Nessuna copia. Titolo, cartella e preferita si prendono dalla versione con `modificata` più recente (`aggiornate` se è quella del backup). |
+| Nota su entrambi, **stesse pagine** (stessi `nota.json`, `.tp`, `.oggetti.json`, immagini e PDF; l'anteprima non conta) | Nessuna copia. Titolo, cartella e preferita si prendono dalla versione con `modificata` più recente (`aggiornate` se è quella del backup). |
 | Nota su entrambi, pagine diverse, **backup più recente** | La versione del backup prende l'id (`aggiornate`). Quella del tablet resta come nuova nota con un id nuovo e titolo "<titolo> (copia)" (`copie`). |
 | Nota su entrambi, pagine diverse, **tablet più recente o stessa data** | Resta quella del tablet. Quella del backup diventa "<titolo> (copia)" (`copie`), a meno che la stessa copia esista già (stesso titolo e stesse pagine: ripristinare due volte lo stesso backup non crea doppioni). |
 | Cartella solo nel backup | Viene aggiunta (`cartelleAggiunte`). Se sul tablet esiste una cartella con lo stesso nome (senza distinguere maiuscole e spazi), si usa quella. |

@@ -50,6 +50,13 @@ class FoglioView(context: Context) : View(context) {
             limita(); invalidate()
         }
 
+    /**
+     * Pixel in basso coperti da qualcosa (tastiera e barra del testo mentre si scrive in una casella):
+     * si puo' scorrere oltre la fine della nota di altrettanto, cosi' anche l'ultima riga resta visibile.
+     */
+    var spazioSotto = 0f
+        set(v) { field = v; limita(); invalidate() }
+
     var pizzicando = false
         set(v) { field = v; if (!v) invalidate() }
 
@@ -71,7 +78,20 @@ class FoglioView(context: Context) : View(context) {
 
     /** Tratti da non disegnare perche' li sta mostrando qualcun altro (es. il lazo mentre li sposta). */
     var nascosti: Set<Long> = emptySet()
-        set(v) { field = v; cache.values.forEach { it.versione = -1 }; invalidate() }
+        set(v) { field = v; rifaiCache() }
+
+    /** Oggetti da non disegnare: spostati dalla selezione o in modifica nel campo di testo. */
+    var oggettiNascosti: Set<String> = emptySet()
+        set(v) { if (field != v) { field = v; rifaiCache() } }
+
+    /** Le immagini delle note, decodificate in sottofondo: quando una e' pronta si ridisegnano le pagine. */
+    val immagini = ImmaginiEditor { rifaiCache() }
+
+    /** Le pagine registrate nei RenderNode vanno ridisegnate (e' cambiato qualcosa fuori dalla pagina). */
+    fun rifaiCache() {
+        cache.values.forEach { it.versione = -1 }
+        invalidate()
+    }
 
     /** Chiamato quando cambia la pagina visibile o la trasformazione. */
     var alMovimento: (() -> Unit)? = null
@@ -175,12 +195,12 @@ class FoglioView(context: Context) : View(context) {
         val largo = LARGHEZZA * scala
         tx = if (largo <= width) (width - largo) / 2f else tx.coerceIn(width - largo - 24 * densita, 24 * densita)
         val alto = altezzaTotale() * scala
-        val minTy = min(spazioSopra, height - alto)
+        val minTy = min(spazioSopra, height - spazioSotto - alto)
         ty = ty.coerceIn(minTy, spazioSopra)
     }
 
     val limiteTy: ClosedFloatingPointRange<Float>
-        get() = min(spazioSopra, height - altezzaTotale() * scala)..spazioSopra
+        get() = min(spazioSopra, height - spazioSotto - altezzaTotale() * scala)..spazioSopra
     val limiteTx: ClosedFloatingPointRange<Float>
         get() {
             val largo = LARGHEZZA * scala
@@ -336,9 +356,11 @@ class FoglioView(context: Context) : View(context) {
         }
     }
 
+    /** Oggetti e tratti della pagina: gli oggetti sotto, l'inchiostro sopra, tutto nello stesso RenderNode. */
     private fun disegnaTratti(canvas: Canvas, p: PaginaViva, sx: Float, sy: Float) {
         if (!canvas.isHardwareAccelerated) {
             m.setScale(scala, scala); m.postTranslate(sx, sy)
+            disegnaOggettiSu(canvas, p, m)
             disegnaTrattiSu(canvas, p, m)
             return
         }
@@ -352,6 +374,7 @@ class FoglioView(context: Context) : View(context) {
             c.nodo.setPosition(0, 0, w, h)
             val rc = c.nodo.beginRecording(w, h)
             m.setScale(scala, scala)
+            disegnaOggettiSu(rc, p, m)
             disegnaTrattiSu(rc, p, m)
             c.nodo.endRecording()
             c.versione = p.versione
@@ -380,6 +403,26 @@ class FoglioView(context: Context) : View(context) {
                 }
             }
         }
+        canvas.restoreToCount(s)
+    }
+
+    /** Disegna gli oggetti della pagina (tranne i nascosti) con la trasformazione pagina -> canvas [t]. */
+    fun disegnaOggettiSu(canvas: Canvas, p: PaginaViva, t: Matrix) {
+        val lista = synchronized(p) { if (p.oggetti.isEmpty()) return; ArrayList(p.oggetti) }
+        disegnaOggetti(canvas, lista, t, oggettiNascosti)
+    }
+
+    /** Disegna [oggetti] con la trasformazione pagina -> canvas [t] (anche quelli fuori pagina, come la selezione che si sposta). */
+    fun disegnaOggetti(canvas: Canvas, oggetti: List<it.frumorn.tratto.data.Oggetto>, t: Matrix, nascosti: Set<String> = emptySet()) {
+        val d = documento ?: return
+        val scalaPx = t.mapRadius(1f)
+        val s = canvas.save()
+        canvas.concat(t)
+        DisegnoOggetti.disegna(
+            canvas, oggetti, nascosti,
+            immagine = { im -> immagini.bitmap(d.fileImmagine(im.file), im.larghezza * scalaPx) },
+            impaginato = { Impaginazione.impaginato(it) },
+        )
         canvas.restoreToCount(s)
     }
 

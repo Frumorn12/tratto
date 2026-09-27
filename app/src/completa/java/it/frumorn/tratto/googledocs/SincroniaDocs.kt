@@ -90,8 +90,12 @@ internal class NotaArchivio(
     }
 
     /** Il file dei tratti e' quello descritto in Archivio: se un giorno cambia posto, la firma e' null e si rilegge sempre. */
-    override fun firma(pagina: Pagina, testo: List<String>): String? =
-        ImprontaPagina.firma(File(archivio.cartellaNota(id), "pagine/${pagina.id}.tp"), pagina, testo)
+    override fun firma(pagina: Pagina, testo: List<String>): String? {
+        val base = ImprontaPagina.firma(File(archivio.cartellaNota(id), "pagine/${pagina.id}.tp"), pagina, testo) ?: return null
+        // Immagini e caselle di testo stanno accanto ai tratti: se cambiano, la pagina va ridisegnata.
+        val oggetti = File(archivio.cartellaNota(id), "pagine/${pagina.id}.oggetti.json")
+        return if (oggetti.exists()) "$base|${oggetti.lastModified()}:${oggetti.length()}" else base
+    }
 
     override fun tratti(pagina: Pagina): List<Tratto> = archivio.tratti(id, pagina.id)
 

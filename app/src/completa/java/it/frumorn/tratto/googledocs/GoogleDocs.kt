@@ -2,6 +2,7 @@ package it.frumorn.tratto.googledocs
 
 import android.content.Context
 import it.frumorn.tratto.TrattoApp
+import it.frumorn.tratto.data.Testo
 import it.frumorn.tratto.backup.DriveBackup
 import it.frumorn.tratto.backup.ErroreDrive
 import it.frumorn.tratto.backup.temporaneo
@@ -204,7 +205,14 @@ object GoogleDocs {
         try {
             val servizio = servizio(app)
             val cartelle = servizio.cartelle
-            val nota = NotaArchivio(TrattoApp.archivio(app), notaId)
+            val archivio = TrattoApp.archivio(app)
+            // Il testo delle caselle di ogni pagina va sotto la sua immagine, come testo vero.
+            val nota = NotaArchivio(archivio, notaId) { id, pagina ->
+                archivio.oggetti(id, pagina.id).filterIsInstance<Testo>()
+                    .flatMap { it.contenuto.testoSemplice.split('\n') }
+                    .map { it.trim() }
+                    .filter { it.isNotEmpty() }
+            }
             val sincronia = SincroniaDocs(servizio, nota, File(app.cacheDir, "google-docs"))
             try {
                 if (avanziDaPulire) {

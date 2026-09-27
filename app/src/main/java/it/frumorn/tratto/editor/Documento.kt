@@ -3,19 +3,28 @@ package it.frumorn.tratto.editor
 import androidx.ink.strokes.Stroke
 import it.frumorn.tratto.data.Archivio
 import it.frumorn.tratto.data.NotaInfo
+import it.frumorn.tratto.data.Oggetto
 import it.frumorn.tratto.data.Pagina
 import it.frumorn.tratto.data.Sfondo
+import it.frumorn.tratto.data.Testo
 import it.frumorn.tratto.data.Tratto
 import it.frumorn.tratto.ink.Pennelli
 import java.util.concurrent.atomic.AtomicLong
 
-/** Una pagina aperta nell'editor: i tratti salvati piu' la loro geometria di Ink, calcolata una volta. */
+/**
+ * Una pagina aperta nell'editor: i tratti salvati piu' la loro geometria di Ink, calcolata una volta,
+ * e gli oggetti (immagini e caselle di testo) che stanno sotto i tratti.
+ */
 class PaginaViva(var pagina: Pagina) {
     val tratti = ArrayList<Tratto>()
+    /** Nell'ordine di disegno: il primo sta sotto. */
+    val oggetti = ArrayList<Oggetto>()
     private val strokes = HashMap<Long, Stroke>()
     private val scatole = HashMap<Long, FloatArray>()
     @Volatile var caricata = false
     var sporca = false
+    /** Gli oggetti vanno salvati (sono in un file a parte, i tratti non si riscrivono per questo). */
+    var oggettiSporchi = false
     /** Cresce a ogni modifica: chi disegna la pagina sa quando rifare la cache. */
     var versione = 0
         private set
@@ -58,18 +67,50 @@ class PaginaViva(var pagina: Pagina) {
         return i
     }
 
+    fun indiceOggetto(id: String): Int = oggetti.indexOfFirst { it.id == id }
+
+    fun oggetto(id: String): Oggetto? = oggetti.find { it.id == id }
+
+    fun aggiungiOggetto(o: Oggetto, indice: Int = oggetti.size) {
+        oggetti.add(indice.coerceIn(0, oggetti.size), o)
+        oggettiModificati()
+    }
+
+    fun rimuoviOggetto(id: String): Int {
+        val i = indiceOggetto(id)
+        if (i >= 0) {
+            oggetti.removeAt(i)
+            oggettiModificati()
+        }
+        return i
+    }
+
     private fun modificata() {
         sporca = true
         versione++
     }
+
+    private fun oggettiModificati() {
+        oggettiSporchi = true
+        versione++
+    }
 }
 
-/** Una modifica annullabile: su una pagina si tolgono dei tratti e se ne aggiungono altri. */
+/**
+ * Una modifica annullabile: su una pagina si tolgono dei tratti e se ne aggiungono altri; lo stesso
+ * per gli oggetti, con la loro posizione nell'ordine di disegno. Un oggetto spostato o cambiato e' tolto
+ * e rimesso con lo stesso id, di solito allo stesso posto.
+ */
 class Modifica(
     val pagina: PaginaViva,
     val tolti: List<Pair<Int, Tratto>>,
     val aggiunti: List<Tratto>,
-)
+    val oggettiTolti: List<Pair<Int, Oggetto>> = emptyList(),
+    /** Oggetti da inserire, con il posto (nell'elenco finale) in cui vanno. */
+    val oggettiAggiunti: List<Pair<Int, Oggetto>> = emptyList(),
+) {
+    val vuota: Boolean get() = tolti.isEmpty() && aggiunti.isEmpty() && oggettiTolti.isEmpty() && oggettiAggiunti.isEmpty()
+}
 
 /** Aggiunta o rimozione di una pagina intera. */
 class ModificaPagine(val indice: Int, val pagina: PaginaViva, val aggiunta: Boolean)
@@ -101,12 +142,16 @@ class Documento(private val archivio: Archivio, info: NotaInfo) {
         }
     }
 
+    /** Carica tratti e oggetti della pagina (se non l'ha gia' fatto). */
     fun caricaTratti(p: PaginaViva) {
         if (p.caricata) return
         val letti = archivio.tratti(info.id, p.pagina.id)
+        val oggetti = archivio.oggetti(info.id, p.pagina.id)
         synchronized(p) {
             p.tratti.clear()
             p.tratti.addAll(letti)
+            p.oggetti.clear()
+            p.oggetti.addAll(oggetti)
             letti.maxOfOrNull { it.id }?.let { max -> prossimoId.updateAndGet { maxOf(it, max + 1) } }
             p.preparaGeometria()
             p.caricata = true
@@ -114,6 +159,12 @@ class Documento(private val archivio: Archivio, info: NotaInfo) {
     }
 
     fun nuovoIdTratto(): Long = prossimoId.incrementAndGet()
+
+    /** File di un'immagine della nota (percorso relativo salvato nell'oggetto). */
+    fun fileImmagine(file: String) = archivio.fileImmagine(info.id, file)
+
+    /** Salva nella nota un'immagine nuova: vedi [Archivio.salvaImmagine]. Da chiamare fuori dal thread principale. */
+    fun salvaImmagine(estensione: String, scrivi: (java.io.OutputStream) -> Unit): String = archivio.salvaImmagine(info.id, estensione, scrivi)
 
     fun esegui(m: Modifica) {
         applica(m, inverso = false)
@@ -125,7 +176,7 @@ class Documento(private val archivio: Archivio, info: NotaInfo) {
 
     /** Registra una modifica gia' applicata a mano (gomma e lazo lavorano dal vivo). */
     fun registra(m: Modifica) {
-        if (m.tolti.isEmpty() && m.aggiunti.isEmpty()) return
+        if (m.vuota) return
         indietro.addLast(m)
         if (indietro.size > 200) indietro.removeFirst()
         avanti.clear()
@@ -158,12 +209,18 @@ class Documento(private val archivio: Archivio, info: NotaInfo) {
 
     private fun applica(m: Modifica, inverso: Boolean) {
         val p = m.pagina
-        if (!inverso) {
-            m.tolti.forEach { (_, t) -> p.rimuovi(t) }
-            m.aggiunti.forEach { p.aggiungi(it) }
-        } else {
-            m.aggiunti.forEach { p.rimuovi(it) }
-            m.tolti.sortedBy { it.first }.forEach { (i, t) -> p.aggiungi(t, i) }
+        synchronized(p) {
+            if (!inverso) {
+                m.tolti.forEach { (_, t) -> p.rimuovi(t) }
+                m.aggiunti.forEach { p.aggiungi(it) }
+                m.oggettiTolti.forEach { (_, o) -> p.rimuoviOggetto(o.id) }
+                m.oggettiAggiunti.sortedBy { it.first }.forEach { (i, o) -> p.aggiungiOggetto(o, i) }
+            } else {
+                m.aggiunti.forEach { p.rimuovi(it) }
+                m.tolti.sortedBy { it.first }.forEach { (i, t) -> p.aggiungi(t, i) }
+                m.oggettiAggiunti.forEach { (_, o) -> p.rimuoviOggetto(o.id) }
+                m.oggettiTolti.sortedBy { it.first }.forEach { (i, o) -> p.aggiungiOggetto(o, i) }
+            }
         }
     }
 
@@ -200,15 +257,27 @@ class Documento(private val archivio: Archivio, info: NotaInfo) {
         pagineSporche = true
     }
 
-    val modificato: Boolean get() = pagineSporche || pagine.any { it.sporca }
+    val modificato: Boolean get() = pagineSporche || pagine.any { it.sporca || it.oggettiSporchi }
+
+    /**
+     * Il testo delle caselle di testo della nota aperta (anche non ancora salvate), come
+     * [Archivio.testoNota]: pagina per pagina, caselle separate da una riga vuota.
+     */
+    fun testoCaselle(): String = pagine
+        .flatMap { p -> synchronized(p) { p.oggetti.filterIsInstance<Testo>() } }
+        .map { it.contenuto.testoSemplice.trim() }
+        .filter { it.isNotEmpty() }
+        .joinToString("\n\n")
 
     /** Salva su disco le pagine cambiate. Da chiamare fuori dal thread principale. */
     fun salva() {
-        val daSalvare = pagine.filter { it.sporca }
-        for (p in daSalvare) {
-            val copia = synchronized(p) { ArrayList(p.tratti) }
+        for (p in pagine.filter { it.sporca }) {
+            val copia = synchronized(p) { p.sporca = false; ArrayList(p.tratti) }
             archivio.salvaTratti(info.id, p.pagina.id, copia)
-            p.sporca = false
+        }
+        for (p in pagine.filter { it.oggettiSporchi }) {
+            val copia = synchronized(p) { p.oggettiSporchi = false; ArrayList(p.oggetti) }
+            archivio.salvaOggetti(info.id, p.pagina.id, copia)
         }
         if (pagineSporche) {
             val elenco = pagine.map { it.pagina }

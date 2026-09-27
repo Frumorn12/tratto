@@ -97,11 +97,15 @@ tratto/
 └── note/<id>/
     ├── nota.json               title, pages, backgrounds
     ├── pagine/<page>.tp        the page's strokes (binary)
+    ├── pagine/<page>.oggetti.json   images and text boxes on the page, if any
+    ├── immagini/<id>.webp      pasted or inserted images
     ├── allegato.pdf            the original PDF, if any
     └── anteprima.webp          the cover
 ```
 
 A `.tp` file starts with `TRTP` and a version number, followed by the strokes in little endian: tool, colour, size, and for every point `x, y, pressure, tilt, orientation, time`. Pages are saved atomically (temporary file, `fsync`, rename), so an interruption never leaves a half-written page. A `.tratto` backup is a ZIP with the same layout.
+
+Images and text boxes live in a small JSON file next to the page (`FormatoOggetti.kt`), drawn under the ink in list order. Text boxes keep rich text as paragraphs (style, alignment, list) made of runs (bold, italic, underline, strikethrough, colour, highlight, size, font). Notes from before have no such file and open unchanged.
 
 ## Building
 

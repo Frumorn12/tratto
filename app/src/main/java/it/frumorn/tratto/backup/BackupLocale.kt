@@ -53,7 +53,8 @@ class BackupNonValido(messaggio: String, causa: Throwable? = null) : IOException
  *
  *   manifest.json              {"app":"Tratto","formato":1,"creato":<ms>,"note":<n>,"dispositivo":"<modello>"}
  *   tratto/indice.json         note e cartelle
- *   tratto/note/<id>/...       nota.json, pagine/<p>.tp, allegato.pdf, anteprima.webp
+ *   tratto/note/<id>/...       nota.json, pagine/<p>.tp, pagine/<p>.oggetti.json, immagini/<i>.webp,
+ *                              allegato.pdf, anteprima.webp (tutta la cartella della nota, cosi' com'e')
  *
  * Il ripristino estrae e controlla tutto in una cartella temporanea, prepara il nuovo archivio accanto
  * a files/tratto e solo alla fine lo scambia con quello vecchio: se qualcosa va storto a meta',
@@ -440,7 +441,7 @@ object BackupLocale {
         }
     }
 
-    /** Stesse pagine e stesso PDF (l'anteprima non conta: si rigenera). */
+    /** Stesse pagine, stessi oggetti e immagini, stesso PDF (l'anteprima non conta: si rigenera). */
     internal fun stessoContenuto(a: File, b: File): Boolean {
         val fa = contenuto(a) ?: return false
         val fb = contenuto(b) ?: return false
