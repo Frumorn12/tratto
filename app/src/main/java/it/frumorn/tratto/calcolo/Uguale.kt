@@ -38,19 +38,51 @@ internal object RilevaUguale {
     /** Distanza massima tra le due barre: poco meno di un rigo del foglio a righe (38 unita'). */
     private const val DISTANZA_MASSIMA = 34f
 
-    fun dueTratti(a: Forma, b: Forma): Boolean {
-        if (!a.orizzontale || !b.orizzontale) return false
+    /**
+     * [hRiga] e' l'altezza delle cifre scritte subito a sinistra, se ce ne sono: un uguale
+     * piccolo dopo cifre grandi puo' avere le barre lontane piu' di quanto sono lunghe.
+     */
+    fun dueTratti(a: Forma, b: Forma, hRiga: Float = 0f): Boolean {
+        if (!barra(a) || !barra(b)) return false
+        // Le due barre vanno nello stesso verso, anche se tutte e due un po' storte.
+        if (abs(pendenza(a) - pendenza(b)) > 25f) return false
         val wa = a.larghezza
         val wb = b.larghezza
         if (min(wa, wb) < MINIMA || max(wa, wb) > MASSIMA) return false
         if (min(wa, wb) < 0.4f * max(wa, wb)) return false
-        if (sovrapposizioneX(a, b) < 0.5f * min(wa, wb)) return false
+        // Scritte di corsa le barre possono essere sfalsate (sul tablet la seconda 8 unita' piu'
+        // a destra, con barre di 7 e 13): basta che stiano una sopra l'altra piu' o meno al centro.
+        if (sovrapposizioneX(a, b) < 0.5f * min(wa, wb) && abs(a.cx - b.cx) > 0.6f * max(wa, wb) + 2f) return false
         val w = (wa + wb) / 2f
         val d = abs(a.cy - b.cy)
         // Le barre non si toccano (anche se un po' inclinate) e restano vicine. Scritte di corsa
         // possono stare lontane quanto sono lunghe e anche di piu' (sul tablet 18 e 22 unita' con
-        // barre di 15 e 20): fino a una volta e mezza la larghezza, ma mai piu' di un rigo.
-        return d >= max(0.12f * w, 0.3f * (a.altezza + b.altezza)) && d <= min(1.5f * w, DISTANZA_MASSIMA)
+        // barre di 15 e 20, o 13 con barre di 8 dopo cifre alte 35): fino a una volta e mezza la
+        // larghezza o a tre quarti di cifra (sul tablet 18,5 con cifre alte 27), ma mai piu' di un rigo.
+        val massima = min(max(1.5f * w, 0.75f * hRiga), DISTANZA_MASSIMA)
+        return d >= max(0.12f * w, 0.3f * (min(a.altezza, b.altezza) + 1f)) && d <= massima
+    }
+
+    /**
+     * Una barra dell'uguale: un trattino orizzontale, o scritto di corsa un segmento dritto
+     * inclinato fino a circa 30 gradi (sul tablet ne sono arrivati a 25).
+     */
+    fun barra(f: Forma): Boolean {
+        if (f.orizzontale) return true
+        val w = f.larghezza
+        if (w < MINIMA || f.altezza > 0.6f * w + 1.5f) return false
+        val n = f.quanti
+        val corda = hypot(f.x(n - 1) - f.x(0), f.y(n - 1) - f.y(0))
+        return corda >= 0.85f * w && f.lunghezza <= 1.25f * corda + 2f
+    }
+
+    /** Inclinazione in gradi del segmento tra gli estremi, senza verso: da -90 a 90. */
+    private fun pendenza(f: Forma): Float {
+        val n = f.quanti
+        var dx = f.x(n - 1) - f.x(0)
+        var dy = f.y(n - 1) - f.y(0)
+        if (dx < 0f) { dx = -dx; dy = -dy }
+        return Math.toDegrees(kotlin.math.atan2(dy.toDouble(), dx.toDouble().coerceAtLeast(1e-3))).toFloat()
     }
 
     fun unTratto(f: Forma): Boolean {

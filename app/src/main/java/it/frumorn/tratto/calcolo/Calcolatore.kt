@@ -115,12 +115,17 @@ object Calcolatore {
         val f2 = Forma(ultimo)
         traccia { "ultimo: w=${f2.larghezza} h=${f2.altezza} orizz=${f2.orizzontale} punti=${ultimo.quanti} prec=$precedente" }
         val uguale = when {
-            f2.orizzontale -> {
+            RilevaUguale.barra(f2) -> {
                 val t1 = precedente?.let { id -> tratti.firstOrNull { it.id == id } ?: nuovi.firstOrNull { it.id == id } }
                     ?: return null.also { traccia { "barra senza precedente (prec=$precedente)" } }
                 if (t1.penna == Penna.EVIDENZIATORE) return null
                 val f1 = Forma(t1)
-                if (!RilevaUguale.dueTratti(f1, f2)) return null.also {
+                // L'altezza delle cifre a sinistra dice quanto possono stare lontane le barre.
+                val hRiga = Raccoglitore.stimaAltezza(
+                    tratti.filter { it.id != t1.id && it.id != ultimo.id && it.penna != Penna.EVIDENZIATORE && it.quanti > 0 }.map { Forma(it) },
+                    Uguale(listOf(f1, f2)),
+                )
+                if (!RilevaUguale.dueTratti(f1, f2, hRiga)) return null.also {
                     traccia { "due barre scartate: w1=${f1.larghezza} w2=${f2.larghezza} h1=${f1.altezza} h2=${f2.altezza} dy=${f1.cy - f2.cy} or1=${f1.orizzontale}" }
                 }
                 Uguale(listOf(f1, f2))

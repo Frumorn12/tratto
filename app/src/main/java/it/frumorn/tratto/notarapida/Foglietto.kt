@@ -52,6 +52,9 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.material3.LocalContentColor
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.PointerType
 import androidx.compose.ui.input.pointer.pointerInput
@@ -137,28 +140,37 @@ fun Foglietto(
             },
     ) {
         val (larghezza, altezza) = NotaRapida.dimensioni(maxWidth.value, maxHeight.value)
-        Surface(
-            shape = MaterialTheme.shapes.extraLarge,
-            color = colori.desk,
-            shadowElevation = 18.dp,
-            modifier = Modifier
+        val forma = MaterialTheme.shapes.extraLarge
+        // L'inchiostro in corso si disegna in una SurfaceView sopra la finestra: dentro un livello
+        // di Compose con ritaglio o trasparenza non si vedeva e il tratto compariva solo al
+        // rilascio della penna. Per questo il livello dell'animazione c'e' solo mentre il foglietto
+        // entra o esce, e la superficie di scrittura non sta dentro la forma arrotondata: sfondo e
+        // ombra sono un riquadro a parte, dietro.
+        val p = comparsa.value.coerceIn(0f, 1f)
+        val animazione = if (p >= 1f) Modifier else Modifier.graphicsLayer {
+            val scala = 0.9f + 0.1f * p
+            scaleX = scala; scaleY = scala
+            alpha = p
+            translationY = (1f - p) * 24.dp.toPx()
+        }
+        Box(
+            Modifier
                 .align(Alignment.Center)
                 .onGloballyPositioned { foglio = it.boundsInRoot() }
-                .graphicsLayer {
-                    // A fine animazione la scala torna esattamente 1: l'inchiostro in corso si
-                    // disegna in un livello a parte che non segue le trasformazioni di Compose.
-                    val p = comparsa.value.coerceIn(0f, 1f)
-                    val s = if (p >= 1f) 1f else 0.9f + 0.1f * p
-                    scaleX = s; scaleY = s
-                    alpha = p
-                    translationY = if (p >= 1f) 0f else (1f - p) * 24.dp.toPx()
-                }
+                .then(animazione)
                 .size(larghezza.dp, altezza.dp),
         ) {
-            Column {
-                BarraFoglietto(sessione, compatta = larghezza < 720f, pannello = pannello, onPannello = { pannello = it }, onChiudi = onChiudi, onApriInTratto = onApriInTratto)
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                AreaScrittura(sessione, pannello, onPannello = { pannello = it }, modifier = Modifier.weight(1f).fillMaxWidth())
+            Box(Modifier.matchParentSize().shadow(18.dp, forma).background(colori.desk, forma))
+            CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onSurface) {
+                Column(Modifier.matchParentSize()) {
+                    BarraFoglietto(sessione, compatta = larghezza < 720f, pannello = pannello, onPannello = { pannello = it }, onChiudi = onChiudi, onApriInTratto = onApriInTratto)
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    // Staccata dai bordi quanto basta perche' gli angoli arrotondati restino puliti.
+                    AreaScrittura(
+                        sessione, pannello, onPannello = { pannello = it },
+                        modifier = Modifier.weight(1f).fillMaxWidth().padding(start = 10.dp, end = 10.dp, bottom = 12.dp),
+                    )
+                }
             }
         }
     }

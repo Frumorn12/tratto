@@ -18,7 +18,10 @@ internal class Raccolta(val forme: List<Forma>, val uguale: Uguale, val h: Float
  */
 internal object Raccoglitore {
     /** Vuoto massimo tra due simboli della stessa formula, in altezze dei simboli. */
-    private const val VUOTO = 2.0f
+    private const val VUOTO = 2.5f
+
+    /** Dopo un uguale gia' scritto sulla stessa riga basta un vuoto piu' piccolo per separare le formule. */
+    private const val VUOTO_DOPO_UGUALE = 1.2f
 
     /** Mezza altezza della fascia intorno all'asse, in altezze dei simboli. */
     private const val FASCIA = 0.35f
@@ -72,14 +75,23 @@ internal object Raccoglitore {
      */
     internal fun stimaAltezza(altri: List<Forma>, u: Uguale): Float {
         val h0 = (1.1f * u.larghezza).coerceIn(8f, 150f)
-        val vicini = altri
-            .filter { it.dx <= u.sx + 0.5f * u.larghezza && it.dx >= u.sx - 4f * h0 && attraversa(it, u.asse, h0) }
-            .filter { it.altezza >= 0.3f * it.larghezza && it.altezza >= 0.3f * h0 && it.altezza <= 3f * h0 && !it.parentesi }
+        vicini(altri, u, h0, 4f, 0.3f * h0, 3f * h0)?.let { return altezzaCifre(it).coerceIn(0.5f * h0, 2.5f * h0) }
+        // Un uguale scritto piccolo non dice quanto sono alte le cifre (sul tablet: barre di 8
+        // unita' dopo cifre alte 35, staccate di 58): le si cerca in una fascia da cifra normale.
+        val fascia = maxOf(h0, 30f)
+        vicini(altri, u, fascia, 6f, 6f, 3f * fascia)?.let { return altezzaCifre(it).coerceIn(0.5f * h0, maxOf(2.5f * h0, 90f)) }
+        return h0
+    }
+
+    /** Altezze dei simboli non piatti che attraversano l'asse a sinistra dell'uguale, entro [finestra] volte [h]. */
+    private fun vicini(altri: List<Forma>, u: Uguale, h: Float, finestra: Float, minima: Float, massima: Float): List<Float>? =
+        altri
+            .filter { it.dx <= u.sx + 0.5f * u.larghezza && it.dx >= u.sx - finestra * h && attraversa(it, u.asse, h) }
+            .filter { it.altezza >= 0.3f * it.larghezza && it.altezza >= minima && it.altezza <= massima && !it.parentesi }
             .sortedByDescending { it.dx }
             .take(6)
-        if (vicini.isEmpty()) return h0
-        return altezzaCifre(vicini.map { it.altezza }).coerceIn(0.5f * h0, 2.5f * h0)
-    }
+            .map { it.altezza }
+            .ifEmpty { null }
 
     private fun attraversa(f: Forma, asse: Float, h: Float) = f.alto <= asse + FASCIA * h && f.basso >= asse - FASCIA * h
 
@@ -122,7 +134,18 @@ internal object Raccoglitore {
                 if (RilevaUguale.libero(v, scelti) && v.dx > taglio) taglio = v.dx
             }
         }
-        return if (taglio.isFinite()) scelti.filter { it.cx > taglio } else scelti
+        if (!taglio.isFinite()) return scelti
+        // Subito dopo l'uguale di prima c'e' il suo risultato, scritto a mano: la formula nuova
+        // comincia dopo il primo vuoto largo (in "3+4=7  2+2=" il 7 non fa parte di 2+2).
+        val dopo = scelti.filter { it.cx > taglio }.sortedByDescending { it.dx }
+        var sinistra = u.sx
+        val formula = ArrayList<Forma>()
+        for (f in dopo) {
+            if (f.dx < sinistra - VUOTO_DOPO_UGUALE * h) break
+            formula += f
+            if (f.sx < sinistra) sinistra = f.sx
+        }
+        return formula
     }
 
     /**

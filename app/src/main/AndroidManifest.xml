@@ -76,6 +76,19 @@
             android:windowSoftInputMode="adjustNothing"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode|density|fontScale" />
 
+        <!-- Voce "Nota rapida" per il launcher: il doppio tocco di Lawnchair sulla Home apre il foglietto. -->
+        <activity-alias
+            android:name=".NotaRapida"
+            android:exported="true"
+            android:label="@string/nota_rapida"
+            android:icon="@drawable/scorciatoia_nuova"
+            android:targetActivity=".notarapida.NotaRapidaActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
         <!-- Apre la nota rapida da qualsiasi app con il pulsante Accessibilita' o i tasti del volume. -->
         <service
             android:name=".ingressi.ServizioNotaRapida"

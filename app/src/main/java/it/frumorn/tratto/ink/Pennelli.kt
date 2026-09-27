@@ -1,6 +1,7 @@
 package it.frumorn.tratto.ink
 
 import androidx.ink.brush.Brush
+import androidx.ink.brush.BrushCoat
 import androidx.ink.brush.BrushFamily
 import androidx.ink.brush.BrushPaint
 import androidx.ink.brush.BrushTip
@@ -69,10 +70,24 @@ object Pennelli {
             clientBrushFamilyId = "tratto/penna",
         )
         // Stilografica: pennino piatto a 45 gradi, pieni e filini dipendono dalla direzione.
+        // Il taglio va come "/": pieno scendendo verso destra, filo salendo, come una penna vera
+        // (con +45 era a specchio, perche' sullo schermo la y cresce verso il basso). Il filo non
+        // scende sotto il 40% e la pressione conta meno che nella penna a sfera: a penna molto
+        // inclinata il tablet puo' dare pressione zero per tutto il tratto, che spariva.
+        //
+        // Sotto il pennino c'e' un secondo strato tondo e sottile: un filo piu' stretto di un pixel
+        // si disegnava a pezzi (salendo in diagonale con la penna leggera sembrava un tratto
+        // vuoto), cosi' invece resta sempre continuo.
         Penna.STILOGRAFICA -> BrushFamily(
-            tip = BrushTip(
-                scaleX = 1f, scaleY = 0.32f, cornerRounding = 0.6f, rotationDegrees = 45f,
-                behaviors = listOf(pressioneSuSpessore(0.35f, 1.35f, s)),
+            coats = listOf(
+                BrushCoat(BrushTip(scaleX = 0.34f, scaleY = 0.34f), BrushPaint()),
+                BrushCoat(
+                    BrushTip(
+                        scaleX = 1f, scaleY = 0.4f, cornerRounding = 0.6f, rotationDegrees = -45f,
+                        behaviors = listOf(pressioneSuSpessore(0.55f, 1.35f, s)),
+                    ),
+                    BrushPaint(),
+                ),
             ),
             clientBrushFamilyId = "tratto/stilografica",
         )
