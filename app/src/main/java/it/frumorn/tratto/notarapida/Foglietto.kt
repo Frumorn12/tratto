@@ -65,6 +65,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import it.frumorn.tratto.ui.editor.EtichettaSuggerimento
 import it.frumorn.tratto.R
 import it.frumorn.tratto.data.Penna
 import it.frumorn.tratto.editor.StatoStrumenti
@@ -183,6 +184,7 @@ private fun AreaScrittura(s: SessioneNotaRapida, pannello: Boolean, onPannello: 
     val area = remember { arrayOfNulls<LayoutCoordinates>(1) }
     Box(modifier.onGloballyPositioned { area[0] = it }) {
         AndroidView(factory = { s.vista }, modifier = Modifier.fillMaxSize())
+        EtichettaSuggerimento(s.suggerimento, s.vista) { s.scriviSuggerimento() }
         AnimatedVisibility(
             visible = pannello,
             modifier = Modifier.align(Alignment.TopStart).padding(start = 12.dp, top = 10.dp),

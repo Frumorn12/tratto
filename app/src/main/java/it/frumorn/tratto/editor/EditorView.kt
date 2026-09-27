@@ -63,6 +63,10 @@ class EditorView(context: Context) : FrameLayout(context), InProgressStrokesFini
     var alTrattiFiniti: ((PaginaViva, List<Tratto>) -> Unit)? = null
     /** Tirando oltre la fine dell'ultima pagina e rilasciando: si aggiunge una pagina. */
     var alTiraPagina: (() -> Unit)? = null
+    /** La penna tocca lo schermo (per nascondere quello che sta sopra le pagine, come i suggerimenti). */
+    var alPennaGiu: (() -> Unit)? = null
+    /** Le pagine si spostano o cambiano scala. */
+    var alMovimento: (() -> Unit)? = null
 
     private val densita = resources.displayMetrics.density
     private val predittore = MotionEventPredictor.newInstance(this)
@@ -80,6 +84,7 @@ class EditorView(context: Context) : FrameLayout(context), InProgressStrokesFini
         foglio.alMovimento = {
             sopra.invalidate()
             alCambioPagina?.invoke(foglio.paginaCorrente())
+            alMovimento?.invoke()
         }
         isFocusable = true
     }
@@ -139,6 +144,7 @@ class EditorView(context: Context) : FrameLayout(context), InProgressStrokesFini
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 pennaGiu = true
+                alPennaGiu?.invoke()
                 sopra.nascondiCursore()
                 requestUnbufferedDispatch(e)
                 scorritore.forceFinished(true)

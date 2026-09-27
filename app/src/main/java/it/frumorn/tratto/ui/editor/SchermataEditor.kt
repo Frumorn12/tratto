@@ -161,6 +161,7 @@ fun SharedTransitionScope.SchermataEditor(
             .background(colori.desk),
     ) {
         AndroidView(factory = { sessione.vista }, modifier = Modifier.fillMaxSize())
+        EtichettaSuggerimento(sessione.suggerimento, sessione.vista) { sessione.scriviSuggerimento() }
 
         Column(Modifier.fillMaxWidth()) {
             Column(Modifier.onGloballyPositioned { sessione.vista.foglio.spazioSopra = it.size.height.toFloat() }) {

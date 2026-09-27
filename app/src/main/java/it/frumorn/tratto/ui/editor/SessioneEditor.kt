@@ -53,10 +53,14 @@ class SessioneEditor(private val stato: StatoApp, val id: String, context: Conte
     private var salvataggio: Job? = null
     private var chiusa = false
 
+    /** Il risultato proposto accanto a un calcolo non ancora chiuso dall'uguale. */
+    val suggerimento = SuggerimentoCalcolo(context.applicationContext, stato.preferenze, stato.scope)
+
     init {
         vista.strumenti = strumenti
         vista.disegnaConDita = stato.preferenze.disegnaConDita
-        vista.alTratto = { aggiornaStato(); programmaSalvataggio() }
+        // Ogni modifica (anche la gomma o il lazo) toglie il suggerimento: se serve lo ripropone il tratto nuovo.
+        vista.alTratto = { suggerimento.nascondi(); aggiornaStato(); programmaSalvataggio() }
         vista.alCambioSelezione = {
             selezione = it
             // Senza selezione il pannello della trascrizione non ha piu' senso.
@@ -65,6 +69,8 @@ class SessioneEditor(private val stato: StatoApp, val id: String, context: Conte
         vista.alCambioPagina = { pagina = it; ultimoScorrimento = System.currentTimeMillis() }
         vista.alTrattiFiniti = { p, nuovi -> calcola(p, nuovi) }
         vista.alTiraPagina = { aggiungiPagina() }
+        vista.alPennaGiu = { suggerimento.nascondi() }
+        vista.alMovimento = { if (suggerimento.proposta != null) suggerimento.nascondi() }
         applicaColori()
     }
 
@@ -128,6 +134,7 @@ class SessioneEditor(private val stato: StatoApp, val id: String, context: Conte
     }
 
     fun annulla() {
+        suggerimento.nascondi()
         documento?.annulla()
         vista.chiudiSelezione()
         vista.ridisegna()
@@ -136,6 +143,7 @@ class SessioneEditor(private val stato: StatoApp, val id: String, context: Conte
     }
 
     fun ripeti() {
+        suggerimento.nascondi()
         documento?.ripeti()
         vista.chiudiSelezione()
         vista.ridisegna()
@@ -267,8 +275,12 @@ class SessioneEditor(private val stato: StatoApp, val id: String, context: Conte
             precedente?.join()
             val r = runCatching {
                 withContext(Dispatchers.Default) { it.frumorn.tratto.calcolo.Calcolatore.dopoTratto(contesto, tutti, nuovi, stile) { d.nuovoIdTratto() } }
-            }.getOrNull() ?: return@launch
-            android.util.Log.i("Tratto", "calcolo: ${r.espressione} = ${r.valore}")
+            }.getOrNull()
+            if (r == null) {
+                // Nessun calcolo chiuso: se ci si ferma su una formula, si propone il risultato.
+                if (!chiusa) nuovi.lastOrNull()?.let { suggerimento.dopoTratto(p, it) }
+                return@launch
+            }
             if (chiusa || d.pagine.none { it === p }) return@launch
             r.tratti.forEach { t -> p.stroke(t) }
             d.esegui(it.frumorn.tratto.editor.Modifica(p, emptyList(), r.tratti))
@@ -276,6 +288,18 @@ class SessioneEditor(private val stato: StatoApp, val id: String, context: Conte
             aggiornaStato()
             programmaSalvataggio()
         }
+    }
+
+    /** Scrive a mano "= risultato" del suggerimento toccato. */
+    fun scriviSuggerimento() {
+        val d = documento ?: return
+        val (p, tratti) = suggerimento.accetta { d.nuovoIdTratto() } ?: return
+        if (tratti.isEmpty() || d.pagine.none { it === p }) return
+        tratti.forEach { t -> p.stroke(t) }
+        d.esegui(it.frumorn.tratto.editor.Modifica(p, emptyList(), tratti))
+        vista.ridisegna()
+        aggiornaStato()
+        programmaSalvataggio()
     }
 
     fun copia() { stato.appunti = vista.copiaSelezione() }
@@ -295,6 +319,7 @@ class SessioneEditor(private val stato: StatoApp, val id: String, context: Conte
     fun chiudi() {
         if (chiusa) return
         chiusa = true
+        suggerimento.nascondi()
         salvataggio?.cancel()
         val d = documento
         val p = pdf

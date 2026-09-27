@@ -638,4 +638,46 @@ class CalcolatoreTest {
         val b = Forma(Quaderno().trattoFuori(100f, 338f, 140f, 338f))
         assertFalse(RilevaUguale.dueTratti(a, b))
     }
+    @Test
+    fun suggerimentoPrimaDellUguale() = runBlocking {
+        val q = Quaderno()
+        val fine = q.scrivi("12+7", 100f, BASE)
+        val s = Calcolatore.suggerisci(q.tratti, q.tratti.last(), LettoreFinto(q))
+        assertNotNull(s)
+        assertEquals("19", s!!.valore)
+        assertFalse(s.conUguale)
+        assertEquals(fine, s.fine, 0.5f * q.hCifre)
+        // "= 19" a destra della formula, sulla stessa riga.
+        val tratti = Calcolatore.scriviSuggerimento(s, q.stile) { q.nuovoId() }
+        assertTrue(tratti.isNotEmpty())
+        assertTrue(tratti.all { t -> t.xs().min() > fine })
+        assertEquals(BASE, tratti.maxOf { t -> t.ys().max() }, 0.15f * q.hCifre)
+    }
+
+    @Test
+    fun nienteSuggerimentoSeIlRisultatoCeGia() = runBlocking {
+        val q = Quaderno()
+        val (_, uguale) = formula(q, "3+4")
+        val r = chiudi(q, uguale)!!
+        q.tratti += r.tratti
+        assertNull(Calcolatore.suggerisci(q.tratti, uguale.last(), LettoreFinto(q)))
+    }
+
+    @Test
+    fun suggerimentoConLUgualeNonLetto() = runBlocking {
+        // L'uguale e' stato scritto ma la formula non e' stata letta: si propone solo il risultato.
+        val q = Quaderno()
+        val (_, uguale) = formula(q, "6+5")
+        q.tratti += uguale
+        val s = Calcolatore.suggerisci(q.tratti, uguale.last(), LettoreFinto(q))
+        assertEquals("11", s?.valore)
+        assertTrue(s!!.conUguale)
+    }
+
+    @Test
+    fun nienteSuggerimentoSulTesto() = runBlocking {
+        val q = Quaderno()
+        q.parole("ciao", 100f, BASE)
+        assertNull(Calcolatore.suggerisci(q.tratti, q.tratti.last(), LettoreFinto(q)))
+    }
 }

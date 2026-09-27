@@ -18,6 +18,7 @@ import it.frumorn.tratto.editor.PaginaViva
 import it.frumorn.tratto.editor.StatoStrumenti
 import it.frumorn.tratto.editor.Strumento
 import it.frumorn.tratto.scrittura.Trascrittore
+import it.frumorn.tratto.ui.editor.SuggerimentoCalcolo
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -53,6 +54,9 @@ class SessioneNotaRapida(context: Context, private val archivio: Archivio, priva
     // Costa pochissimo, quindi si fa subito: anche il primo tratto trova il documento pronto.
     private val documento = Documento(archivio, info).also { d -> d.apri(); d.pagine.forEach { d.caricaTratti(it) } }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+
+    /** Il risultato proposto accanto a un calcolo non ancora chiuso dall'uguale. */
+    val suggerimento = SuggerimentoCalcolo(context.applicationContext, preferenze, scope)
     private var salvataggio: Job? = null
     /** La nota e' nell'archivio (dal primo tratto in poi). */
     private var registrata = false
@@ -63,8 +67,10 @@ class SessioneNotaRapida(context: Context, private val archivio: Archivio, priva
         vista.disegnaConDita = preferenze.disegnaConDita
         vista.documento = documento
         documento.alCambio = { aggiornaStato() }
-        vista.alTratto = { dopoModifica() }
+        vista.alTratto = { suggerimento.nascondi(); dopoModifica() }
         vista.alTrattiFiniti = { p, nuovi -> calcola(p, nuovi) }
+        vista.alPennaGiu = { suggerimento.nascondi() }
+        vista.alMovimento = { if (suggerimento.proposta != null) suggerimento.nascondi() }
         vista.post { vista.preriscalda() }
         // Il foglietto e' piccolo: la pagina lo riempie in larghezza anche in orizzontale, dove
         // l'editor lascia ampi margini ai lati. Rimane la stessa riga in alto quando si ruota.
@@ -120,13 +126,27 @@ class SessioneNotaRapida(context: Context, private val archivio: Archivio, priva
             precedente?.join()
             val r = runCatching {
                 withContext(Dispatchers.Default) { Calcolatore.dopoTratto(vista.context, tutti, nuovi, stile) { documento.nuovoIdTratto() } }
-            }.getOrNull() ?: return@launch
+            }.getOrNull()
+            if (r == null) {
+                if (!chiusa) nuovi.lastOrNull()?.let { suggerimento.dopoTratto(p, it) }
+                return@launch
+            }
             if (chiusa) return@launch
             r.tratti.forEach { t -> p.stroke(t) }
             documento.esegui(Modifica(p, emptyList(), r.tratti))
             vista.ridisegna()
             dopoModifica()
         }
+    }
+
+    /** Scrive a mano "= risultato" del suggerimento toccato. */
+    fun scriviSuggerimento() {
+        val (p, tratti) = suggerimento.accetta { documento.nuovoIdTratto() } ?: return
+        if (tratti.isEmpty() || chiusa) return
+        tratti.forEach { t -> p.stroke(t) }
+        documento.esegui(Modifica(p, emptyList(), tratti))
+        vista.ridisegna()
+        dopoModifica()
     }
 
     private fun programmaSalvataggio() {
@@ -158,12 +178,14 @@ class SessioneNotaRapida(context: Context, private val archivio: Archivio, priva
     }
 
     fun annulla() {
+        suggerimento.nascondi()
         documento.annulla()
         vista.ridisegna()
         dopoModifica()
     }
 
     fun ripeti() {
+        suggerimento.nascondi()
         documento.ripeti()
         vista.ridisegna()
         dopoModifica()

@@ -16,6 +16,24 @@ import kotlinx.coroutines.CancellationException
 data class Risultato(val espressione: String, val valore: String, val tratti: List<Tratto>)
 
 /**
+ * Un calcolo riconosciuto mentre si scrive, da proporre prima che lo si chiuda con l'uguale (o se
+ * l'uguale scritto non ha dato risultato). [fine] e [asse] sono in coordinate di pagina: dove
+ * finisce la formula e la sua linea di mezzo; [altezza] e' quella delle cifre.
+ */
+class Suggerimento internal constructor(
+    val espressione: String,
+    val valore: String,
+    /** L'uguale c'e' gia': si scrive solo il risultato. */
+    val conUguale: Boolean,
+    internal val raccolta: Raccolta,
+    internal val riga: Riga,
+) {
+    val fine: Float get() = if (conUguale) raccolta.uguale.dx else raccolta.forme.maxOf { it.dx }
+    val asse: Float get() = raccolta.uguale.asse
+    val altezza: Float get() = raccolta.h
+}
+
+/**
  * Note matematiche: quando si scrive un'espressione seguita da "=", si legge l'espressione, la
  * si calcola e si scrive il risultato dopo l'uguale con la bella scrittura.
  *
@@ -70,6 +88,54 @@ object Calcolatore {
         } catch (_: Exception) {
             null
         }
+    }
+
+    /**
+     * Un calcolo scritto e non ancora chiuso dall'uguale: se la riga dell'ultimo tratto e' una
+     * formula con un'operazione, il risultato da proporre accanto. Va chiamata fuori dal main
+     * thread (usa ML Kit), dopo una pausa nella scrittura.
+     */
+    suspend fun suggerisci(context: Context, tratti: List<Tratto>, ultimo: Tratto): Suggerimento? {
+        if (!Trascrittore.modelloPronto(context)) return null
+        BellaScrittura.prepara(context)
+        return suggerisci(tratti, ultimo) { t, pre, h -> Trascrittore.candidati(context, t, pre, h) }
+    }
+
+    /** Come [suggerisci], con il lettore dato: per i test sulla JVM. */
+    internal suspend fun suggerisci(tratti: List<Tratto>, ultimo: Tratto, lettore: Lettore): Suggerimento? {
+        if (ultimo.penna == Penna.EVIDENZIATORE || ultimo.quanti < 2 || risultato(ultimo)) return null
+        val pagina = tratti.filter { it.penna != Penna.EVIDENZIATORE && it.quanti > 0 }.map { Forma(it) }
+        val f = pagina.firstOrNull { it.id == ultimo.id } ?: return null
+        val h0 = maxOf(f.altezza, 12f)
+        // Un risultato gia' scritto su questa riga, a destra: il calcolo e' fatto.
+        if (pagina.any { risultato(it.tratto) && it.sx > f.sx && it.alto <= f.basso + 0.5f * h0 && it.basso >= f.alto - 0.5f * h0 }) return null
+        // Se l'ultimo tratto chiude un uguale (non riconosciuto come formula), si parte da quello;
+        // se no da un uguale immaginario subito a destra dell'ultimo tratto, sul suo asse.
+        val partner = if (RilevaUguale.barra(f)) pagina.lastOrNull { it.id != f.id && RilevaUguale.dueTratti(it, f, h0) } else null
+        val u = if (partner != null) Uguale(listOf(partner, f)) else {
+            val x = f.dx + 0.25f * h0
+            val barra = FloatArray(2 * Tratto.CAMPI).also { p ->
+                p[0] = x; p[1] = f.cy; p[2] = 0.5f; p[3] = -1f; p[4] = -1f
+                p[Tratto.CAMPI] = x + 0.5f * h0; p[Tratto.CAMPI + 1] = f.cy; p[Tratto.CAMPI + 2] = 0.5f; p[Tratto.CAMPI + 3] = -1f; p[Tratto.CAMPI + 4] = -1f
+            }
+            Uguale(listOf(Forma(Tratto(-1L, ultimo.penna, ultimo.colore, ultimo.spessore, barra))))
+        }
+        val raccolta = Raccoglitore.raccogli(pagina, u) ?: return null
+        // L'ultimo tratto deve far parte della formula (o dell'uguale): un segno staccato altrove no.
+        if (partner == null && raccolta.forme.none { it.id == f.id }) return null
+        val riga = Struttura.analizza(raccolta.forme, raccolta.h)
+        if (Lettura.banale(riga) || Struttura.ambigua(riga)) return null
+        val formula = Lettura.leggi(riga, lettore) ?: return null
+        val valore = formula.nodo.valuta() ?: return null
+        traccia { "suggerimento: ${formula.nodo.stampa()} = ${Numero.formatta(valore)}" }
+        return Suggerimento(formula.nodo.stampa(), Numero.formatta(valore), partner != null, raccolta, riga)
+    }
+
+    /** I tratti di "= risultato" (o solo del risultato, se l'uguale c'e' gia') per un [Suggerimento] accettato. */
+    fun scriviSuggerimento(s: Suggerimento, stile: Stile, idNuovo: () -> Long): List<Tratto> {
+        val hCifre = s.raccolta.h
+        return if (s.conUguale) scrivi(s.valore, s.riga, s.raccolta, stile, idNuovo)
+        else scrivi("= " + s.valore, s.riga, s.raccolta, stile, idNuovo, x = s.fine + 0.4f * hCifre)
     }
 
     internal fun tracciaPubblica(messaggio: () -> String) = traccia(messaggio)
@@ -157,7 +223,7 @@ object Calcolatore {
      * sull'asse dell'uguale se la riga principale ha solo frazioni), con colore, penna e
      * spessore dell'uguale.
      */
-    private fun scrivi(testo: String, riga: Riga, raccolta: Raccolta, stile: Stile, idNuovo: () -> Long): List<Tratto> {
+    private fun scrivi(testo: String, riga: Riga, raccolta: Raccolta, stile: Stile, idNuovo: () -> Long, x: Float? = null): List<Tratto> {
         val u = raccolta.uguale
         val alti = riga.gruppiNormali().filter {
             it.speciale == null && it.altezza >= 0.5f * riga.h && it.altezza >= 0.3f * it.larghezza && it.forme.singleOrNull()?.parentesi != true
@@ -167,10 +233,10 @@ object Calcolatore {
             .filter { it.speciale == null && it.altezza in 0.7f * hCifre..1.3f * hCifre }
         val base = if (principali.isNotEmpty()) mediana(principali.map { it.basso }) else u.asse + 0.5f * hCifre
         val altezzaX = (hCifre / rapportoCifre(stile)).coerceAtLeast(2f)
-        val x = u.dx + 0.35f * hCifre
+        val inizio = x ?: (u.dx + 0.35f * hCifre)
         val y = base - BellaScrittura.ascesa(stile, altezzaX)
         val modello = u.ultimo
-        val tratti = BellaScrittura.componi(testo, stile, x, y, altezzaX, 0f, modello.colore, modello.penna, modello.spessore, idNuovo)
+        val tratti = BellaScrittura.componi(testo, stile, inizio, y, altezzaX, 0f, modello.colore, modello.penna, modello.spessore, idNuovo)
         for (t in tratti) for (i in 0 until t.quanti) t.punti[i * Tratto.CAMPI + 4] = ORIENTAMENTO_RISULTATO
         return tratti
     }
