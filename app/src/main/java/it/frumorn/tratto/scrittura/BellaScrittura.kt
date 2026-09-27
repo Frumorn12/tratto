@@ -115,6 +115,15 @@ object BellaScrittura {
     }
 
     /**
+     * Distanza tra la y di partenza di [componi] e la prima linea di base, per un testo senza
+     * maiuscole accentate: serve a far poggiare il testo composto su una linea di base data.
+     */
+    fun ascesa(stile: Stile, altezzaX: Float): Float {
+        val f = font(stile)
+        return (f.base - f.cima) * altezzaX / f.altezzaX
+    }
+
+    /**
      * Ingombro del testo composto con gli stessi parametri di [componi], relativo al punto di
      * partenza: left = top = 0. L'altezza va dalla cima della prima riga (accenti compresi) al
      * fondo dei discendenti dell'ultima; la larghezza e' quella della riga piu' lunga. Qualche
