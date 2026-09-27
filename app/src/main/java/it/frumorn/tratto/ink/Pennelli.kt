@@ -9,7 +9,9 @@ import androidx.ink.brush.InputToolType
 import androidx.ink.brush.SelfOverlap
 import androidx.ink.brush.StockBrushes
 import androidx.ink.brush.BrushBehavior
+import androidx.ink.brush.behavior.DampingNode
 import androidx.ink.brush.behavior.EasingFunction
+import androidx.ink.brush.behavior.ProgressDomain
 import androidx.ink.brush.behavior.ResponseNode
 import androidx.ink.brush.behavior.SourceNode
 import androidx.ink.brush.behavior.TargetNode
@@ -31,6 +33,13 @@ object Pennelli {
     /** Lunghezza in cm di un'unita' di pagina: serve a Ink per i comportamenti basati sulla distanza. */
     const val CM_PER_UNITA = 0.021f
 
+    /**
+     * Quanto la pressione cambia lo spessore: 0,6 leggera, 1 media, 1,5 forte.
+     * Sul Tab S6 Lite la penna manda tutta la scala 0..1 (tratti leggeri ~0,1, decisi ~0,9).
+     */
+    @Volatile var sensibilita: Float = 1f
+        set(v) { field = v.coerceIn(0.4f, 1.8f) }
+
     private fun comportamento(
         sorgente: SourceNode.Source,
         daSorgente: Float,
@@ -39,33 +48,41 @@ object Pennelli {
         da: Float,
         a: Float,
         curva: EasingFunction = EasingFunction.Predefined.LINEAR,
-    ) = BrushBehavior(
-        TargetNode(bersaglio, da, a, ResponseNode(curva, SourceNode(sorgente, daSorgente, aSorgente))),
+        smorzamento: Float = 0f,
+    ): BrushBehavior {
+        var nodo: androidx.ink.brush.behavior.ValueNode = ResponseNode(curva, SourceNode(sorgente, daSorgente, aSorgente))
+        if (smorzamento > 0f) nodo = DampingNode(ProgressDomain.TIME_IN_SECONDS, smorzamento, nodo)
+        return BrushBehavior(TargetNode(bersaglio, da, a, nodo))
+    }
+
+    /** Spessore in funzione della pressione, allargato o ristretto dalla sensibilita'. */
+    private fun pressioneSuSpessore(min: Float, max: Float, s: Float) = comportamento(
+        SourceNode.Source.NORMALIZED_PRESSURE, 0f, 1f, TargetNode.Target.SIZE_MULTIPLIER,
+        1f - (1f - min) * s, 1f + (max - 1f) * s,
+        EasingFunction.Predefined.EASE_OUT, smorzamento = 0.012f,
     )
 
-    private fun pressioneSuSpessore(da: Float, a: Float) = comportamento(
-        SourceNode.Source.NORMALIZED_PRESSURE, 0f, 1f, TargetNode.Target.SIZE_MULTIPLIER, da, a,
-        EasingFunction.Predefined.EASE_OUT,
-    )
-
-    /** Stilografica: pennino piatto a 45 gradi, i pieni e i filini dipendono dalla direzione. */
-    private val stilografica by lazy {
-        BrushFamily(
+    private fun crea(penna: Penna, s: Float): BrushFamily = when (penna) {
+        // Penna a sfera: da un filo a una volta e mezzo lo spessore.
+        Penna.PENNA -> BrushFamily(
+            tip = BrushTip(behaviors = listOf(pressioneSuSpessore(0.34f, 1.45f, s))),
+            clientBrushFamilyId = "tratto/penna",
+        )
+        // Stilografica: pennino piatto a 45 gradi, pieni e filini dipendono dalla direzione.
+        Penna.STILOGRAFICA -> BrushFamily(
             tip = BrushTip(
                 scaleX = 1f, scaleY = 0.32f, cornerRounding = 0.6f, rotationDegrees = 45f,
-                behaviors = listOf(pressioneSuSpessore(0.55f, 1.2f)),
+                behaviors = listOf(pressioneSuSpessore(0.35f, 1.35f, s)),
             ),
             clientBrushFamilyId = "tratto/stilografica",
         )
-    }
-
-    /** Matita: piu' si preme piu' e' scura; inclinandola il tratto si allarga e schiarisce. */
-    private val matita by lazy {
-        BrushFamily(
+        // Matita: piu' si preme piu' e' scura; inclinandola il tratto si allarga e schiarisce.
+        Penna.MATITA -> BrushFamily(
             tip = BrushTip(
                 behaviors = listOf(
-                    comportamento(SourceNode.Source.NORMALIZED_PRESSURE, 0f, 1f, TargetNode.Target.OPACITY_MULTIPLIER, 0.35f, 1f),
-                    comportamento(SourceNode.Source.NORMALIZED_PRESSURE, 0f, 1f, TargetNode.Target.SIZE_MULTIPLIER, 0.8f, 1.1f),
+                    comportamento(SourceNode.Source.NORMALIZED_PRESSURE, 0f, 1f, TargetNode.Target.OPACITY_MULTIPLIER,
+                        1f - 0.8f * s.coerceAtMost(1.2f), 1f, EasingFunction.Predefined.EASE_OUT, 0.012f),
+                    pressioneSuSpessore(0.7f, 1.15f, s),
                     comportamento(SourceNode.Source.TILT_IN_RADIANS, 0.35f, 1.2f, TargetNode.Target.SIZE_MULTIPLIER, 1f, 2.6f),
                     comportamento(SourceNode.Source.TILT_IN_RADIANS, 0.35f, 1.2f, TargetNode.Target.OPACITY_MULTIPLIER, 1f, 0.55f),
                 ),
@@ -73,28 +90,25 @@ object Pennelli {
             paint = BrushPaint(selfOverlap = SelfOverlap.ACCUMULATE),
             clientBrushFamilyId = "tratto/matita",
         )
-    }
-
-    /** Pennello: grande escursione di spessore con la pressione, piu' largo se inclinato. */
-    private val pennello by lazy {
-        BrushFamily(
+        // Pennello: grande escursione con la pressione, piu' largo se inclinato.
+        Penna.PENNELLO -> BrushFamily(
             tip = BrushTip(
                 scaleX = 1f, scaleY = 0.8f,
                 behaviors = listOf(
-                    pressioneSuSpessore(0.12f, 1.5f),
+                    pressioneSuSpessore(0.1f, 1.7f, s),
                     comportamento(SourceNode.Source.TILT_IN_RADIANS, 0.3f, 1.1f, TargetNode.Target.WIDTH_MULTIPLIER, 1f, 1.8f),
                 ),
             ),
             clientBrushFamilyId = "tratto/pennello",
         )
+        // Evidenziatore: come su Samsung Notes non dipende dalla pressione.
+        Penna.EVIDENZIATORE -> StockBrushes.highlighter(SelfOverlap.DISCARD)
     }
 
-    fun famiglia(penna: Penna): BrushFamily = when (penna) {
-        Penna.STILOGRAFICA -> stilografica
-        Penna.PENNA -> StockBrushes.pressurePen()
-        Penna.MATITA -> matita
-        Penna.EVIDENZIATORE -> StockBrushes.highlighter(SelfOverlap.DISCARD)
-        Penna.PENNELLO -> pennello
+    private val famiglie = HashMap<Pair<Penna, Float>, BrushFamily>()
+
+    fun famiglia(penna: Penna): BrushFamily = synchronized(famiglie) {
+        famiglie.getOrPut(penna to sensibilita) { crea(penna, sensibilita) }
     }
 
     /** L'evidenziatore e' semitrasparente: il colore scelto viene applicato al 40%. */
