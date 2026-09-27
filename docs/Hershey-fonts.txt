@@ -1,0 +1,102 @@
+Font Hershey usati dalla "bella scrittura" di Tratto
+===================================================
+
+Il file app/src/main/assets/scrittura/hershey.bin contiene i glifi ASCII 32..126 di due font
+Hershey a tratto singolo, convertiti da tools/font_hershey.py:
+
+  - "cursive" (corsivo);
+  - "futural" (stampatello).
+
+I dati vengono dal pacchetto Python Hershey-Fonts 2.1.0 (https://github.com/apshu/HersheyFonts),
+che contiene i font Hershey in formato JHF. Seguono le condizioni d'uso dei font e la licenza del
+pacchetto.
+
+
+Riconoscimenti richiesti dalla distribuzione dei font Hershey
+-------------------------------------------------------------
+
+- The Hershey Fonts were originally created by Dr. A. V. Hershey while working at the
+  U. S. National Bureau of Standards.
+- The format of the Font data in this distribution was originally created by
+      James Hurt
+      Cognition, Inc.
+      900 Technology Park Drive
+      Billerica, MA 01821
+      (mit-eddie!ci-dandelion!hurt)
+
+
+Condizioni d'uso (testo originale della distribuzione USENET dei font Hershey)
+-----------------------------------------------------------------------------
+
+USE RESTRICTION:
+        This distribution of the Hershey Fonts may be used by anyone for
+        any purpose, commercial or otherwise, providing that:
+                1. The following acknowledgements must be distributed with
+                        the font data:
+                        - The Hershey Fonts were originally created by Dr.
+                                A. V. Hershey while working at the U. S.
+                                National Bureau of Standards.
+                        - The format of the Font data in this distribution
+                                was originally created by
+                                        James Hurt
+                                        Cognition, Inc.
+                                        900 Technology Park Drive
+                                        Billerica, MA 01821
+                                        (mit-eddie!ci-dandelion!hurt)
+                2. The font data in this distribution may be converted into
+                        any other format *EXCEPT* the format distributed by
+                        the U.S. NTIS (which organization holds the rights
+                        to the distribution and use of the font data in that
+                        particular format). Not that anybody would really
+                        *want* to use their format... each point is described
+                        in eight bytes as "xxx yyy:", where xxx and yyy are
+                        the coordinate values as ASCII numbers.
+
+Dalla documentazione inclusa nel pacchetto Hershey-Fonts:
+
+        The Hershey Fonts:
+        - were digitized by Dr. A. V. Hershey while working for the U.S.
+                Government National Bureau of Standards (NBS).
+        - are in the public domain, with a few caveats:
+                - They are available from NTIS (National Technical Info.
+                        Service) in a computer-readable from which is *not*
+                        in the public domain. This format is described in
+                        a hardcopy publication "Tables of Coordinates for
+                        Hershey's Repertory of Occidental Type Fonts and
+                        Graphic Symbols" available from NTIS for less than
+                        $20 US (phone number +1 703 487 4763).
+                - NTIS does not care about and doesn't want to know about
+                        what happens to Hershey Font data that is not
+                        distributed in their exact format.
+                - This distribution is not in the NTIS format, and thus is
+                        only subject to the simple restriction described
+                        at the top of this file.
+
+Tratto non usa il formato NTIS: hershey.bin e' un formato binario proprio (descritto in
+tools/font_hershey.py).
+
+
+Licenza del pacchetto Python Hershey-Fonts
+------------------------------------------
+
+MIT License
+
+Copyright (c) 2020 apshu
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

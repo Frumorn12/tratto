@@ -8,6 +8,8 @@ lifecycle = "2.11.0"
 profileinstaller = "1.4.1"
 ink = "1.1.0-alpha09"
 motionprediction = "1.0.0"
+mlkitInchiostro = "19.0.0"
+junit = "4.13.2"
 
 [libraries]
 androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "coreKtx" }
@@ -26,6 +28,8 @@ ink-strokes = { module = "androidx.ink:ink-strokes", version.ref = "ink" }
 ink-rendering = { module = "androidx.ink:ink-rendering", version.ref = "ink" }
 ink-geometry = { module = "androidx.ink:ink-geometry", version.ref = "ink" }
 androidx-motionprediction = { module = "androidx.input:input-motionprediction", version.ref = "motionprediction" }
+mlkit-digital-ink = { module = "com.google.mlkit:digital-ink-recognition", version.ref = "mlkitInchiostro" }
+junit = { module = "junit:junit", version.ref = "junit" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
