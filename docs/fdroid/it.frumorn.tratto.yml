@@ -20,7 +20,7 @@ Builds:
     gradle:
       - libera
     scandelete:
-      - app/src/main/assets/scrittura/hershey.bin
+      - app/src/*/assets/scrittura/hershey.bin
 
 AutoUpdateMode: Version
 UpdateCheckMode: Tags
