@@ -7,12 +7,17 @@ import androidx.compose.runtime.setValue
 import it.frumorn.tratto.data.Archivio
 import it.frumorn.tratto.data.NotaInfo
 import it.frumorn.tratto.data.Preferenze
+import it.frumorn.tratto.calcolo.Calcolatore
+import it.frumorn.tratto.data.Tratto
 import it.frumorn.tratto.editor.Anteprima
 import it.frumorn.tratto.editor.Documento
 import it.frumorn.tratto.editor.EditorView
 import it.frumorn.tratto.editor.FoglioView
+import it.frumorn.tratto.editor.Modifica
+import it.frumorn.tratto.editor.PaginaViva
 import it.frumorn.tratto.editor.StatoStrumenti
 import it.frumorn.tratto.editor.Strumento
+import it.frumorn.tratto.scrittura.Trascrittore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -59,6 +64,7 @@ class SessioneNotaRapida(context: Context, private val archivio: Archivio, priva
         vista.documento = documento
         documento.alCambio = { aggiornaStato() }
         vista.alTratto = { dopoModifica() }
+        vista.alTrattiFiniti = { p, nuovi -> calcola(p, nuovi) }
         vista.post { vista.preriscalda() }
         // Il foglietto e' piccolo: la pagina lo riempie in larghezza anche in orizzontale, dove
         // l'editor lascia ampi margini ai lati. Rimane la stessa riga in alto quando si ruota.
@@ -100,6 +106,27 @@ class SessioneNotaRapida(context: Context, private val archivio: Archivio, priva
             return
         }
         programmaSalvataggio()
+    }
+
+    private var calcoli: Job? = null
+
+    /** Le note matematiche anche nel foglietto: dopo "=" il risultato si scrive a mano, come nell'editor. */
+    private fun calcola(p: PaginaViva, nuovi: List<Tratto>) {
+        if (!Trascrittore.DISPONIBILE || !preferenze.calcoliAutomatici) return
+        val tutti = synchronized(p) { ArrayList(p.tratti) }
+        val stile = preferenze.stileBellaScrittura
+        val precedente = calcoli
+        calcoli = scope.launch {
+            precedente?.join()
+            val r = runCatching {
+                withContext(Dispatchers.Default) { Calcolatore.dopoTratto(vista.context, tutti, nuovi, stile) { documento.nuovoIdTratto() } }
+            }.getOrNull() ?: return@launch
+            if (chiusa) return@launch
+            r.tratti.forEach { t -> p.stroke(t) }
+            documento.esegui(Modifica(p, emptyList(), r.tratti))
+            vista.ridisegna()
+            dopoModifica()
+        }
     }
 
     private fun programmaSalvataggio() {

@@ -1,7 +1,15 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
 }
+
+// La chiave delle release sta fuori dal repository (~/.config/tratto/firma.properties). Senza,
+// la release esce non firmata: e' quello che si aspetta F-Droid, che firma con la sua chiave.
+val firma = File(System.getProperty("user.home"), ".config/tratto/firma.properties")
+    .takeIf { it.isFile }
+    ?.let { f -> Properties().apply { f.inputStream().use { load(it) } } }
 
 android {
     namespace = "it.frumorn.tratto"
@@ -12,8 +20,17 @@ android {
         minSdk = 35
         targetSdk = 36
         versionCode = 1
-        versionName = "0.1.0"
+        versionName = "1.0.0"
         ndk { abiFilters += "arm64-v8a" }
+    }
+
+    signingConfigs {
+        if (firma != null) create("release") {
+            storeFile = File(firma.getProperty("storeFile"))
+            storePassword = firma.getProperty("storePassword")
+            keyAlias = firma.getProperty("keyAlias")
+            keyPassword = firma.getProperty("keyPassword")
+        }
     }
 
     buildTypes {
@@ -21,7 +38,7 @@ android {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            signingConfig = signingConfigs.getByName("debug")
+            if (firma != null) signingConfig = signingConfigs.getByName("release")
         }
     }
     buildFeatures { compose = true }
