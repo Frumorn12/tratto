@@ -77,6 +77,15 @@
             <meta-data android:name="android.service.quicksettings.ACTIVE_TILE" android:value="false" />
         </service>
 
+        <!-- File temporanei da condividere (PDF e immagini esportati). -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.file"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/percorsi_condivisi" />
+        </provider>
+
         <!-- WorkManager si inizializza su richiesta (TrattoApp e' un Configuration.Provider), non all'avvio. -->
         <provider
             android:name="androidx.startup.InitializationProvider"

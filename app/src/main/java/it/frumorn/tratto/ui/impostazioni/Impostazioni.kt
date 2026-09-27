@@ -74,6 +74,9 @@ fun Impostazioni(stato: StatoApp) {
             }
             VoceInterruttore("Angoli vivi", "Stile squadrato, invece degli angoli arrotondati", p.spigoloVivo) { p.impostaSpigolo(it) }
 
+            Sezione("Backup")
+            SezioneBackup(stato)
+
             Sezione("Scorciatoie")
             Text(
                 "Per aprire una nota nuova da fuori Tratto:\n" +

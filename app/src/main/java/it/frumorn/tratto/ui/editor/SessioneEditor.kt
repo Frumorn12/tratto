@@ -209,6 +209,16 @@ class SessioneEditor(private val stato: StatoApp, val id: String, context: Conte
         }
     }
 
+    /** Salva tutto e attende la fine: da chiamare prima di esportare. */
+    suspend fun salvaEAttendi(): NotaInfo? {
+        salvataggio?.cancel()
+        val d = documento ?: return null
+        withContext(Dispatchers.IO) { d.salva() }
+        return stato.archivio.note.value.find { it.id == id }
+    }
+
+    fun paginaCorrente() = documento?.pagine?.getOrNull(vista.foglio.paginaCorrente())?.pagina
+
     /** Salvataggio immediato quando l'app va in secondo piano. */
     fun salvaOra() {
         salvataggio?.cancel()

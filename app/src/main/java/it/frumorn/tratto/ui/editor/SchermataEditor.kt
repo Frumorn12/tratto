@@ -211,7 +211,27 @@ private fun Color.luminanceBassa() = (red * 0.299f + green * 0.587f + blue * 0.1
 @Composable
 private fun BarraSuperiore(stato: StatoApp, s: SessioneEditor, modifier: Modifier) {
     val focus = LocalFocusManager.current
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val scope = rememberCoroutineScope()
     var menu by remember { mutableStateOf(false) }
+    var inCorso by remember { mutableStateOf(false) }
+    fun esporta(azione: suspend (it.frumorn.tratto.data.NotaInfo) -> Unit) {
+        menu = false
+        scope.launch {
+            inCorso = true
+            try {
+                val info = s.salvaEAttendi() ?: return@launch
+                azione(info)
+            } catch (e: Exception) {
+                android.widget.Toast.makeText(context, "Esportazione non riuscita: ${e.message}", android.widget.Toast.LENGTH_LONG).show()
+            } finally {
+                inCorso = false
+            }
+        }
+    }
+    val salvaPdf = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.CreateDocument("application/pdf"),
+    ) { uri -> if (uri != null) esporta { info -> it.frumorn.tratto.ui.esporta.Esporta.salvaPdf(context, stato.archivio, info, uri) } }
     var titolo by remember(s.titolo) { mutableStateOf(s.titolo) }
     Surface(color = MaterialTheme.colorScheme.surface, modifier = modifier.fillMaxWidth()) {
         Column {
@@ -246,12 +266,28 @@ private fun BarraSuperiore(stato: StatoApp, s: SessioneEditor, modifier: Modifie
                             DropdownMenuItem(text = { Text(nome) }, onClick = { s.cambiaSfondo(sf); menu = false })
                         }
                         HorizontalDivider()
+                        Text("ESPORTA", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+                        DropdownMenuItem(text = { Text("Condividi come PDF") }, leadingIcon = { Icona(R.drawable.ic_ios_share, null) },
+                            onClick = { esporta { info -> it.frumorn.tratto.ui.esporta.Esporta.condividiPdf(context, stato.archivio, info) } })
+                        DropdownMenuItem(text = { Text("Salva PDF…") }, leadingIcon = { Icona(R.drawable.ic_picture_as_pdf, null) },
+                            onClick = {
+                                menu = false
+                                val info = stato.archivio.note.value.find { it.id == s.id }
+                                if (info != null) salvaPdf.launch(it.frumorn.tratto.ui.esporta.Esporta.nomePdf(info))
+                            })
+                        DropdownMenuItem(text = { Text("Condividi pagina come immagine") }, leadingIcon = { Icona(R.drawable.ic_image, null) },
+                            onClick = {
+                                val numero = s.pagina + 1
+                                esporta { info -> s.paginaCorrente()?.let { p -> it.frumorn.tratto.ui.esporta.Esporta.condividiPagina(context, stato.archivio, info, p, numero) } }
+                            })
+                        HorizontalDivider()
                         DropdownMenuItem(text = { Text("Elimina questa pagina") }, enabled = s.pagine > 1,
                             leadingIcon = { Icona(R.drawable.ic_delete, null) }, onClick = { s.eliminaPagina(); menu = false })
                     }
                 }
             }
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            if (inCorso) androidx.compose.material3.LinearProgressIndicator(Modifier.fillMaxWidth().height(2.dp))
+            else HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
         }
     }
 }
