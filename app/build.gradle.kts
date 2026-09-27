@@ -9,10 +9,11 @@ android {
 
     defaultConfig {
         applicationId = "it.frumorn.tratto"
-        minSdk = 31
+        minSdk = 35
         targetSdk = 36
         versionCode = 1
         versionName = "0.1.0"
+        ndk { abiFilters += "arm64-v8a" }
     }
 
     buildTypes {
@@ -31,6 +32,12 @@ dependencies {
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.profileinstaller)
+    implementation(libs.ink.authoring)
+    implementation(libs.ink.brush)
+    implementation(libs.ink.strokes)
+    implementation(libs.ink.rendering)
+    implementation(libs.ink.geometry)
+    implementation(libs.androidx.motionprediction)
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)
     implementation(libs.compose.foundation)

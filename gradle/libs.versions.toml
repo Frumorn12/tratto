@@ -6,6 +6,8 @@ activityCompose = "1.13.0"
 coreKtx = "1.19.1"
 lifecycle = "2.11.0"
 profileinstaller = "1.4.1"
+ink = "1.1.0-alpha09"
+motionprediction = "1.0.0"
 
 [libraries]
 androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "coreKtx" }
@@ -17,6 +19,13 @@ compose-ui = { module = "androidx.compose.ui:ui" }
 compose-foundation = { module = "androidx.compose.foundation:foundation" }
 compose-material3 = { module = "androidx.compose.material3:material3" }
 compose-ui-tooling-preview = { module = "androidx.compose.ui:ui-tooling-preview" }
+
+ink-authoring = { module = "androidx.ink:ink-authoring", version.ref = "ink" }
+ink-brush = { module = "androidx.ink:ink-brush", version.ref = "ink" }
+ink-strokes = { module = "androidx.ink:ink-strokes", version.ref = "ink" }
+ink-rendering = { module = "androidx.ink:ink-rendering", version.ref = "ink" }
+ink-geometry = { module = "androidx.ink:ink-geometry", version.ref = "ink" }
+androidx-motionprediction = { module = "androidx.input:input-motionprediction", version.ref = "motionprediction" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
