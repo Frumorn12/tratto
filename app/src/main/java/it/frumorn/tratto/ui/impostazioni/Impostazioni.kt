@@ -64,6 +64,7 @@ fun Impostazioni(stato: StatoApp) {
             Voce("Bella scrittura", "Lo stile usato per riscrivere a mano il testo trascritto") {
                 Scelta(listOf(it.frumorn.tratto.scrittura.Stile.CORSIVO to "Corsivo", it.frumorn.tratto.scrittura.Stile.STAMPATELLO to "Stampatello"), p.stileBellaScrittura) { p.impostaStileBellaScrittura(it) }
             }
+            VoceInterruttore("Calcoli automatici", "Scrivi un'espressione e poi «=»: Tratto scrive il risultato accanto. Usa il riconoscimento della scrittura (circa 14 MB, si scarica alla prima trascrizione)", p.calcoliAutomatici) { p.impostaCalcoliAutomatici(it) }
             VoceInterruttore("Scrivi anche con il dito", "Se spento, il dito serve solo a scorrere e zoomare", p.disegnaConDita) { p.impostaDita(it) }
 
             Sezione("Pagine")

@@ -18,7 +18,7 @@ internal class Raccolta(val forme: List<Forma>, val uguale: Uguale, val h: Float
  */
 internal object Raccoglitore {
     /** Vuoto massimo tra due simboli della stessa formula, in altezze dei simboli. */
-    private const val VUOTO = 1.5f
+    private const val VUOTO = 2.0f
 
     /** Mezza altezza della fascia intorno all'asse, in altezze dei simboli. */
     private const val FASCIA = 0.35f
@@ -37,9 +37,10 @@ internal object Raccoglitore {
             it.cx > u.dx - 0.1f * u.larghezza && it.sx < u.dx + 2.5f * h &&
                 it.basso > asse - 0.7f * h && it.alto < asse + 0.7f * h
         }
-        if (occupato) return null
+        if (occupato) return null.also { Calcolatore.tracciaPubblica { "raccolta: occupato a destra" } }
 
         val scelti = LinkedHashSet(cammina(tutti, u, h))
+        Calcolatore.tracciaPubblica { "raccolta: asse=$asse h=$h sull'asse=${scelti.size} " + tutti.joinToString { "[${it.sx.toInt()}-${it.dx.toInt()} ${it.alto.toInt()}-${it.basso.toInt()}]" } }
         if (scelti.isEmpty()) return null
         val apici = HashSet<Forma>()
         var cambiato = true
@@ -57,7 +58,7 @@ internal object Raccoglitore {
                 }
             }
         }
-        if (scelti.size < 2) return null
+        if (scelti.size < 2) return null.also { Calcolatore.tracciaPubblica { "raccolta: solo ${scelti.size} simbolo, apici=${apici.size}" } }
         return Raccolta(scelti.sortedBy { it.id }, u, h)
     }
 
@@ -83,14 +84,20 @@ internal object Raccoglitore {
      * scritto da noi o al primo uguale.
      */
     private fun cammina(tutti: List<Forma>, u: Uguale, h: Float): List<Forma> {
-        val sullAsse = tutti
-            .filter { attraversa(it, u.asse, h) && it.cx < u.sx && it.dx <= u.sx + 0.5f * u.larghezza && it.altezza <= 4f * h }
+        // Oltre ai tratti sull'asse si guardano anche quelli appena sopra o sotto (esponenti,
+        // numeratori, denominatori): non entrano qui nella formula (ci pensano apici e frazioni),
+        // ma fanno da ponte, cosi' un esponente tra la base e l'uguale non sembra un vuoto.
+        val vicini = tutti
+            .filter {
+                it.cx < u.sx && it.dx <= u.sx + 0.5f * u.larghezza && it.altezza <= 4f * h &&
+                    it.basso >= u.asse - 2.2f * h && it.alto <= u.asse + 2.2f * h
+            }
             .sortedByDescending { it.dx }
         val scelti = ArrayList<Forma>()
         var fronte = u.sx
-        for (f in sullAsse) {
+        for (f in vicini) {
             if (f.dx < fronte - VUOTO * h || Calcolatore.risultato(f.tratto)) break
-            scelti += f
+            if (attraversa(f, u.asse, h)) scelti += f
             if (f.sx < fronte) fronte = f.sx
         }
         // Un uguale gia' scritto sulla stessa riga chiude la formula: si tiene solo quello che

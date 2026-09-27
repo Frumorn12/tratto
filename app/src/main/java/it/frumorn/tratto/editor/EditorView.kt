@@ -59,6 +59,8 @@ class EditorView(context: Context) : FrameLayout(context), InProgressStrokesFini
     var alCambioSelezione: ((Boolean) -> Unit)? = null
     var alTratto: (() -> Unit)? = null
     var alCambioPagina: ((Int) -> Unit)? = null
+    /** Tratti di penna appena finiti, pagina per pagina (per i calcoli automatici). */
+    var alTrattiFiniti: ((PaginaViva, List<Tratto>) -> Unit)? = null
 
     private val densita = resources.displayMetrics.density
     private val predittore = MotionEventPredictor.newInstance(this)
@@ -204,6 +206,7 @@ class EditorView(context: Context) : FrameLayout(context), InProgressStrokesFini
     override fun onStrokesFinished(strokes: Map<InProgressStrokeId, Stroke>) {
         val d = documento
         if (d == null) { inchiostro.removeFinishedStrokes(strokes.keys); return }
+        val nuovi = LinkedHashMap<PaginaViva, MutableList<Tratto>>()
         for ((id, stroke) in strokes) {
             val (i, penna) = paginaDelTratto.remove(id) ?: continue
             val imp = colore.remove(id) ?: continue
@@ -211,10 +214,12 @@ class EditorView(context: Context) : FrameLayout(context), InProgressStrokesFini
             val t = Tratto(d.nuovoIdTratto(), penna, imp.colore, imp.spessore, Pennelli.punti(stroke))
             p.precarica(t.id, stroke)
             d.esegui(Modifica(p, emptyList(), listOf(t)))
+            nuovi.getOrPut(p) { ArrayList() } += t
         }
         foglio.invalidate()
         inchiostro.removeFinishedStrokes(strokes.keys)
         alTratto?.invoke()
+        nuovi.forEach { (p, lista) -> alTrattiFiniti?.invoke(p, lista) }
     }
 
     // ---------------------------------------------------------------- gomma

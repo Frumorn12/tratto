@@ -53,18 +53,29 @@ object Calcolatore {
      * main thread: se c'e' un uguale usa ML Kit. [idNuovo] da' gli id per i tratti del risultato.
      */
     suspend fun dopoTratto(context: Context, tratti: List<Tratto>, nuovi: List<Tratto>, stile: Stile, idNuovo: () -> Long): Risultato? {
-        val raccolta = trova(tratti, nuovi, orologio()) ?: return null
+        traccia { "dopoTratto: ${nuovi.size} nuovi su ${tratti.size}" }
+        val raccolta = trova(tratti, nuovi, orologio()) ?: return null.also { traccia { "nessun uguale" } }
         val riga = Struttura.analizza(raccolta.forme, raccolta.h)
+        traccia { "uguale trovato: ${raccolta.forme.size} tratti, schema ${Lettura.schema(riga).parti.joinToString("") { if (it is Lettura.Fissa) it.testo else "□" }}" }
         if (Lettura.banale(riga)) return null
         return try {
             if (!Trascrittore.modelloPronto(context)) return null
             BellaScrittura.prepara(context)
-            calcola(raccolta, riga, stile, idNuovo) { t, pre, h -> Trascrittore.candidati(context, t, pre, h) }
+            calcola(raccolta, riga, stile, idNuovo) { t, pre, h ->
+                Trascrittore.candidati(context, t, pre, h).also { c -> traccia { "letti (${t.size} tratti): ${c.take(5)}" } }
+            }
         } catch (e: CancellationException) {
             throw e
         } catch (_: Exception) {
             null
         }
+    }
+
+    internal fun tracciaPubblica(messaggio: () -> String) = traccia(messaggio)
+
+    /** Diagnostica nel logcat (tag TrattoCalcolo); non fa niente sulla JVM dei test. */
+    private inline fun traccia(messaggio: () -> String) {
+        runCatching { android.util.Log.d("TrattoCalcolo", messaggio()) }
     }
 
     /** Come [dopoTratto], con il lettore e l'ora dati: per i test sulla JVM. */
@@ -101,19 +112,23 @@ object Calcolatore {
         val ultimo = nuovi.last()
         if (ultimo.penna == Penna.EVIDENZIATORE || ultimo.quanti < 2) return null
         val f2 = Forma(ultimo)
+        traccia { "ultimo: w=${f2.larghezza} h=${f2.altezza} orizz=${f2.orizzontale} punti=${ultimo.quanti} prec=$precedente" }
         val uguale = when {
             f2.orizzontale -> {
-                val t1 = precedente?.let { id -> tratti.firstOrNull { it.id == id } ?: nuovi.firstOrNull { it.id == id } } ?: return null
+                val t1 = precedente?.let { id -> tratti.firstOrNull { it.id == id } ?: nuovi.firstOrNull { it.id == id } }
+                    ?: return null.also { traccia { "barra senza precedente (prec=$precedente)" } }
                 if (t1.penna == Penna.EVIDENZIATORE) return null
                 val f1 = Forma(t1)
-                if (!RilevaUguale.dueTratti(f1, f2)) return null
+                if (!RilevaUguale.dueTratti(f1, f2)) return null.also {
+                    traccia { "due barre scartate: w1=${f1.larghezza} w2=${f2.larghezza} h1=${f1.altezza} h2=${f2.altezza} dy=${f1.cy - f2.cy} or1=${f1.orizzontale}" }
+                }
                 Uguale(listOf(f1, f2))
             }
             RilevaUguale.unTratto(f2) -> Uguale(listOf(f2))
             else -> return null
         }
         val pagina = (tratti + nuovi).distinctBy { it.id }.filter { it.penna != Penna.EVIDENZIATORE && it.quanti > 0 }.map { Forma(it) }
-        if (!RilevaUguale.libero(uguale, pagina)) return null
+        if (!RilevaUguale.libero(uguale, pagina)) return null.also { traccia { "uguale non libero" } }
         synchronized(this) {
             if (ultimo.id in gestiti) return null
             gestiti.addLast(ultimo.id)

@@ -63,6 +63,7 @@ class SessioneEditor(private val stato: StatoApp, val id: String, context: Conte
             if (!it && trascrizione !is Trascrizione.InCorso) trascrizione = null
         }
         vista.alCambioPagina = { pagina = it; ultimoScorrimento = System.currentTimeMillis() }
+        vista.alTrattiFiniti = { p, nuovi -> calcola(p, nuovi) }
         applicaColori()
     }
 
@@ -243,6 +244,34 @@ class SessioneEditor(private val stato: StatoApp, val id: String, context: Conte
             }
             vista.sostituisciSelezione(nuovi)
             trascrizione = null
+        }
+    }
+
+    /**
+     * Note matematiche: se i tratti appena scritti completano un "=" dopo un'espressione, il
+     * risultato viene scritto a mano accanto. Le chiamate partono subito e in ordine, come chiede
+     * il Calcolatore (la finestra per le due barre dell'uguale si misura al momento della chiamata).
+     */
+    private var calcoli: kotlinx.coroutines.Job? = null
+
+    private fun calcola(p: it.frumorn.tratto.editor.PaginaViva, nuovi: List<it.frumorn.tratto.data.Tratto>) {
+        if (!stato.preferenze.calcoliAutomatici) return
+        val d = documento ?: return
+        val tutti = synchronized(p) { ArrayList(p.tratti) }
+        val stile = stato.preferenze.stileBellaScrittura
+        val precedente = calcoli
+        calcoli = stato.scope.launch {
+            precedente?.join()
+            val r = runCatching {
+                withContext(Dispatchers.Default) { it.frumorn.tratto.calcolo.Calcolatore.dopoTratto(contesto, tutti, nuovi, stile) { d.nuovoIdTratto() } }
+            }.getOrNull() ?: return@launch
+            android.util.Log.i("Tratto", "calcolo: ${r.espressione} = ${r.valore}")
+            if (chiusa || d.pagine.none { it === p }) return@launch
+            r.tratti.forEach { t -> p.stroke(t) }
+            d.esegui(it.frumorn.tratto.editor.Modifica(p, emptyList(), r.tratti))
+            vista.ridisegna()
+            aggiornaStato()
+            programmaSalvataggio()
         }
     }
 
