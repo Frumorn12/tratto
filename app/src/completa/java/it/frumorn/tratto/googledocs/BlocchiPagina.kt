@@ -209,6 +209,30 @@ internal object BlocchiPagina {
         return Riquadro(x0 - m, y0 - m, x1 + m, y1 + m)
     }
 
+    /**
+     * Impronta di un disegno che non cambia se lo si sposta: punti rispetto all'angolo del riquadro.
+     * Nel documento il disegno sta dove sta (vedi [PianoDisegni]); se cambia solo il posto non si ridisegna.
+     */
+    fun improntaRelativa(b: BloccoPagina.Disegno): String = hash { d ->
+        d.writeInt(VERSIONE)
+        d.writeFloat(b.riquadro.larghezza); d.writeFloat(b.riquadro.altezza)
+        d.writeInt(b.tratti.size)
+        for (t in b.tratti) {
+            d.writeInt(t.penna.ordinal)
+            d.writeInt(t.colore)
+            d.writeFloat(t.spessore)
+            d.writeInt(t.punti.size)
+            for ((i, f) in t.punti.withIndex()) {
+                d.writeFloat(when (i % Tratto.CAMPI) { 0 -> f - b.riquadro.sinistra; 1 -> f - b.riquadro.alto; else -> f })
+            }
+        }
+        for (im in b.immagini) {
+            scrivi(d, im.file)
+            d.writeFloat(im.x - b.riquadro.sinistra); d.writeFloat(im.y - b.riquadro.alto)
+            d.writeFloat(im.larghezza); d.writeFloat(im.altezza)
+        }
+    }
+
     /** Impronta di quello che si disegna in un blocco: se non cambia, l'immagine nel documento e' ancora giusta. */
     fun impronta(pagina: Pagina, b: BloccoPagina, tratti: List<Tratto>, oggetti: List<Oggetto>): String = hash { d ->
         d.writeInt(VERSIONE)

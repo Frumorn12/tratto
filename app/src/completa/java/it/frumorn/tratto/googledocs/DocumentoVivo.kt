@@ -11,6 +11,7 @@ import it.frumorn.tratto.data.TestoRicco
 import it.frumorn.tratto.editor.DocumentoAperto
 import it.frumorn.tratto.editor.ModificaDocumento
 import it.frumorn.tratto.editor.ParagrafoDocumento
+import it.frumorn.tratto.editor.SpostamentoTratti
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.channels.Channel
@@ -47,7 +48,13 @@ internal class DocumentoVivo(
     private val documento: () -> String?,
     /** Oggetti posizionati da non disegnare: i disegni di Tratto (l'inchiostro c'e' gia'). */
     private val escludi: () -> Set<String>,
+    /** I disegni di Tratto nel documento, per farli seguire al testo. */
+    private val disegni: () -> List<DisegnoSalvato>,
+    /** La nota, per sapere dove sono i tratti dei disegni. */
+    private val nota: NotaDocs,
     private val mostra: (PagineDoc) -> Unit,
+    /** Tratti da spostare o togliere perche' il loro disegno si e' mosso nel documento. */
+    private val segui: (List<SpostamentoTratti>) -> Unit,
 ) : DocumentoAperto {
     private val caratteri = CaratteriDoc(app)
     private val bitmap = ConcurrentHashMap<String, Bitmap>()
@@ -131,6 +138,62 @@ internal class DocumentoVivo(
         mostrato = p
         mostra(p)
         scaricaImmagini(m, p)
+        try {
+            seguiDisegni(m, p)
+        } catch (e: Exception) {
+            Log.w(TAG, "Disegni non seguiti", e)
+        }
+    }
+
+    /** Dove stava ogni oggetto posizionato nella revisione precedente: pagina e angolo in alto a sinistra, in unita'. */
+    private var postiPrima: Map<String, Posto>? = null
+
+    private data class Posto(val pagina: Int, val x: Float, val y: Float)
+
+    private fun posti(m: ModelloDoc, p: PagineDoc): Map<String, Posto> {
+        val out = HashMap<String, Posto>()
+        for ((k, par) in m.paragrafi.withIndex()) for (id in par.posizionati) {
+            val o = m.posizionati[id] ?: continue
+            val pos = p.posizioni.getOrNull(k) ?: continue
+            out[id] = Posto(pos.pagina, pos.x + (o.sinistra * p.u).toFloat(), pos.y + (o.alto * p.u).toFloat())
+        }
+        return out
+    }
+
+    /**
+     * I disegni di Tratto seguono il documento: se tra la revisione di prima e questa un disegno si e'
+     * mosso (testo aggiunto sopra, immagine trascinata in Docs), l'inchiostro si sposta di altrettanto;
+     * se e' sparito, l'inchiostro si toglie. Si guarda solo come cambia il documento: un disegno mosso
+     * sul tablet e non ancora mandato non torna indietro.
+     */
+    private fun seguiDisegni(m: ModelloDoc, p: PagineDoc) {
+        val ora = posti(m, p)
+        val prima = postiPrima
+        postiPrima = ora
+        if (prima == null) return
+        val salvati = disegni().filter { prima.containsKey(it.oggetto) && prima[it.oggetto] != ora[it.oggetto] }
+        if (salvati.isEmpty()) return
+        val pagine = nota.leggi().second
+        val lette = HashMap<String, PaginaLetta>()
+        val mosse = ArrayList<SpostamentoTratti>()
+        for (s in salvati) {
+            val da = pagine.indexOfFirst { it.id == s.pagina }
+            if (da < 0) continue
+            val letta = lette.getOrPut(s.pagina) { nota.leggiPagina(pagine[da]) }
+            val b = letta.blocchi.firstOrNull { it is BloccoPagina.Disegno && it.chiave == s.chiave } as? BloccoPagina.Disegno ?: continue
+            val ids = b.tratti.mapTo(HashSet()) { it.id }
+            val a = prima.getValue(s.oggetto)
+            val n = ora[s.oggetto]
+            if (n == null) {
+                mosse += SpostamentoTratti(da, ids, -1, 0f, 0f)
+                continue
+            }
+            // Lo scarto che c'era tra inchiostro e immagine resta (di solito zero).
+            val x = n.x + (b.riquadro.sinistra - a.x)
+            val y = n.y + (b.riquadro.alto - a.y)
+            mosse += SpostamentoTratti(da, ids, n.pagina, x - b.riquadro.sinistra, y - b.riquadro.alto)
+        }
+        if (mosse.isNotEmpty()) segui(mosse)
     }
 
     /** Scarica le immagini che mancano; quando ce n'e' una nuova si ridisegna. */

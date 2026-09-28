@@ -72,7 +72,7 @@ internal class PianoDisegni(
                 senzaPosto += v
                 continue
             }
-            if (s != null && s.oggetto in modello.posizionati && s.impronta == v.impronta && alSuoPosto(s.oggetto, a)) {
+            if (s != null && s.oggetto in modello.posizionati && s.impronta == v.impronta && alSuoPosto(s.oggetto, v)) {
                 tenuti += s
                 usati += s.chiave
                 continue
@@ -104,10 +104,19 @@ internal class PianoDisegni(
         )
     }
 
-    /** L'oggetto e' ancorato al paragrafo giusto e sta dove deve stare. */
-    private fun alSuoPosto(oggetto: String, a: Ancora): Boolean {
+    /**
+     * L'oggetto sta dove deve stare, sulla stessa pagina entro un punto. Conta il posto, non il
+     * paragrafo: se sopra e' arrivato testo nuovo e il disegno e' rimasto ancorato al paragrafo di
+     * prima, va bene lo stesso.
+     */
+    private fun alSuoPosto(oggetto: String, v: DisegnoVoluto): Boolean {
         val o = modello.posizionati[oggetto] ?: return false
-        return ancoraDi[oggetto] == a.paragrafo && abs(o.sinistra - a.sinistra) < 1.0 && abs(o.alto - a.alto) < 1.0
+        val k = ancoraDi[oggetto] ?: return false
+        if (posti.pagine.getOrNull(k) != v.indicePagina) return false
+        val u = posti.u
+        val x = (posti.margineSinistro + o.sinistra) * u
+        val y = posti.cime[k] + o.alto * u
+        return abs(x - v.riquadro.sinistra) < u && abs(y - v.riquadro.alto) < u
     }
 
     private companion object {

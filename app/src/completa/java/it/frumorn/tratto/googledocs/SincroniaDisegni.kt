@@ -50,7 +50,8 @@ internal class SincroniaDisegni(
         val lette = withContext(Dispatchers.IO) { pagine.map { nota.leggiPagina(it) } }
         val voluti = lette.flatMapIndexed { i, letta ->
             letta.blocchi.filterIsInstance<BloccoPagina.Disegno>().map { b ->
-                DisegnoVoluto(SincroniaDocs.chiave(letta.pagina, b), letta.pagina.id, i, b.riquadro, BlocchiPagina.impronta(letta.pagina, b, letta.tratti, letta.oggetti))
+                // Chiave senza pagina: un disegno che il documento sposta su un'altra pagina resta lo stesso.
+                DisegnoVoluto(b.chiave, letta.pagina.id, i, b.riquadro, BlocchiPagina.improntaRelativa(b))
             }
         }
         val piano = PianoDisegni(modello, impagina(modello), l.disegni, voluti)
@@ -75,7 +76,7 @@ internal class SincroniaDisegni(
             val perPagina = lette.associateBy { it.pagina.id }
             val disegni = piano.daAggiungere.mapIndexed { k, (v, a) ->
                 val letta = perPagina.getValue(v.pagina)
-                val blocco = letta.blocchi.first { SincroniaDocs.chiave(letta.pagina, it) == v.chiave }
+                val blocco = letta.blocchi.first { it is BloccoPagina.Disegno && it.chiave == v.chiave }
                 val file = File(cartella, "${nota.id}-disegno-$k.png")
                 try {
                     nota.disegna(info, letta, blocco, file)

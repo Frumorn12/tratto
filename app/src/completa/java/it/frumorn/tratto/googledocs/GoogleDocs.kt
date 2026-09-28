@@ -9,6 +9,7 @@ import it.frumorn.tratto.backup.temporaneo
 import it.frumorn.tratto.data.scriviAtomico
 import it.frumorn.tratto.editor.DocumentoAperto
 import it.frumorn.tratto.editor.LivelloDocumento
+import it.frumorn.tratto.editor.SpostamentoTratti
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -104,14 +105,23 @@ object GoogleDocs {
      * disegna sotto l'inchiostro e si aggiorna dal vivo (vedi [DocumentoVivo]). [mostra] riceve il
      * documento impaginato, da un thread qualsiasi.
      */
-    fun apri(context: Context, notaId: String, scope: CoroutineScope, mostra: (LivelloDocumento) -> Unit): DocumentoAperto {
+    fun apri(
+        context: Context,
+        notaId: String,
+        scope: CoroutineScope,
+        mostra: (LivelloDocumento) -> Unit,
+        segui: (List<SpostamentoTratti>) -> Unit,
+    ): DocumentoAperto {
         val app = context.applicationContext
         scope.launch(Dispatchers.IO) { carica(app) }
         return DocumentoVivo(
             app, notaId, scope,
             documento = { collegamento(notaId)?.documento },
             escludi = { collegamento(notaId)?.disegni?.mapTo(HashSet()) { it.oggetto }.orEmpty() },
+            disegni = { collegamento(notaId)?.disegni.orEmpty() },
+            nota = NotaArchivio(TrattoApp.archivio(app), notaId),
             mostra = mostra,
+            segui = segui,
         ).also { it.avvia() }
     }
 

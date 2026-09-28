@@ -258,6 +258,34 @@ class Documento(private val archivio: Archivio, info: NotaInfo) {
         return cambiato
     }
 
+    /**
+     * Sposta (o toglie) tratti perche' il documento collegato ha mosso il loro disegno. Non entra nella
+     * cronologia: e' una modifica venuta da fuori. Vero se e' cambiato qualcosa.
+     */
+    fun spostaTratti(s: SpostamentoTratti): Boolean {
+        val da = pagine.getOrNull(s.da) ?: return false
+        caricaTratti(da)
+        val presi = synchronized(da) { da.tratti.filter { it.id in s.ids } }
+        if (presi.isEmpty()) return false
+        val a = if (s.a >= 0) pagine.getOrNull(s.a) ?: return false else null
+        a?.let { caricaTratti(it) }
+        synchronized(da) { presi.forEach { da.rimuovi(it) } }
+        if (a != null) {
+            val spostati = presi.map { t ->
+                val p = t.punti.copyOf()
+                var i = 0
+                while (i + 1 < p.size) {
+                    p[i] += s.dx
+                    p[i + 1] += s.dy
+                    i += Tratto.CAMPI
+                }
+                Tratto(t.id, t.penna, t.colore, t.spessore, p)
+            }
+            synchronized(a) { spostati.forEach { a.aggiungi(it) } }
+        }
+        return true
+    }
+
     fun eliminaPagina(indice: Int) {
         if (pagine.size <= 1) return
         val m = ModificaPagine(indice, pagine[indice], aggiunta = false)

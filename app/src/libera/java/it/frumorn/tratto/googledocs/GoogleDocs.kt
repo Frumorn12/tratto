@@ -3,6 +3,7 @@ package it.frumorn.tratto.googledocs
 import android.content.Context
 import it.frumorn.tratto.editor.DocumentoAperto
 import it.frumorn.tratto.editor.LivelloDocumento
+import it.frumorn.tratto.editor.SpostamentoTratti
 import kotlinx.coroutines.CoroutineScope
 
 /**
@@ -20,5 +21,11 @@ object GoogleDocs {
     fun finisciInBackground(context: Context, notaId: String, cambiata: Boolean) = Unit
 
     /** Nessun documento da mostrare. */
-    fun apri(context: Context, notaId: String, scope: CoroutineScope, mostra: (LivelloDocumento) -> Unit): DocumentoAperto? = null
+    fun apri(
+        context: Context,
+        notaId: String,
+        scope: CoroutineScope,
+        mostra: (LivelloDocumento) -> Unit,
+        segui: (List<SpostamentoTratti>) -> Unit,
+    ): DocumentoAperto? = null
 }

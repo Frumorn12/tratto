@@ -25,6 +25,13 @@ interface LivelloDocumento {
 /** Un paragrafo del documento da modificare: dove sta (pagina [pagina], unita' di pagina) e il suo testo. */
 class ParagrafoDocumento(val pagina: Int, val x: Float, val y: Float, val larghezza: Float, val contenuto: TestoRicco, val rif: Any)
 
+/**
+ * Tratti da spostare perche' nel documento il loro disegno si e' mosso (testo aggiunto sopra, immagine
+ * trascinata): dalla pagina [da] alla pagina [a], di [dx], [dy] unita'. Con [a] negativo i tratti si
+ * tolgono (il disegno e' stato cancellato nel documento).
+ */
+class SpostamentoTratti(val da: Int, val ids: Set<Long>, val a: Int, val dx: Float, val dy: Float)
+
 /** Una modifica in corso di un paragrafo del documento: il testo va al documento mentre si scrive. */
 interface ModificaDocumento {
     /** Il testo e' cambiato: si manda al documento poco dopo (alla prima pausa). */

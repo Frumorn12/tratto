@@ -143,7 +143,11 @@ class SessioneEditor(private val stato: StatoApp, val id: String, context: Conte
             doc.alCambio = { aggiornaStato() }
             documento = doc
             aggiornaStato()
-            documentoEsterno = GoogleDocs.apri(contesto, id, stato.scope) { l -> vista.post { mostraDocumento(l) } }
+            documentoEsterno = GoogleDocs.apri(
+                contesto, id, stato.scope,
+                mostra = { l -> vista.post { mostraDocumento(l) } },
+                segui = { mosse -> vista.post { seguiDocumento(mosse) } },
+            )
             vista.documentoEsterno = documentoEsterno
             vista.post { vista.preriscalda() }
             // Le altre pagine in sottofondo, a partire da quelle vicine.
@@ -167,6 +171,18 @@ class SessioneEditor(private val stato: StatoApp, val id: String, context: Conte
             aggiornaStato()
             programmaSalvataggio()
         }
+    }
+
+    /** Nel documento collegato qualche disegno si e' mosso o e' sparito: l'inchiostro lo segue. */
+    private fun seguiDocumento(mosse: List<it.frumorn.tratto.editor.SpostamentoTratti>) {
+        if (chiusa) return
+        val d = documento ?: return
+        var cambiato = false
+        for (m in mosse) if (d.spostaTratti(m)) cambiato = true
+        if (!cambiato) return
+        vista.chiudiSelezione()
+        vista.ridisegna()
+        programmaSalvataggio()
     }
 
     /** L'app torna in primo piano. */
