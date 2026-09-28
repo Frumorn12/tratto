@@ -1,0 +1,1 @@
+Google Docs, rebuilt: every handwritten line, formula and drawing goes into the document as its own transparent image, and text boxes become real text with their formatting. Only Tratto's own blocks are updated, a second after you pause, so whatever you add in Google Docs stays where you put it.

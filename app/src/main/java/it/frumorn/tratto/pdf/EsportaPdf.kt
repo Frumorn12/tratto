@@ -256,6 +256,53 @@ object EsportaPdf {
         }
     }
 
+    /**
+     * Un ritaglio della pagina su fondo trasparente, per Google Docs: i [tratti] e le [immagini] che
+     * stanno in [riquadro] (unita' di pagina), a [pxPerUnita] pixel per unita' (entro [LATO_MAX_PX]).
+     * Niente carta ne' righe: nel documento si vede solo l'inchiostro.
+     */
+    fun immagineRitaglio(
+        archivio: Archivio,
+        info: NotaInfo,
+        riquadro: android.graphics.RectF,
+        tratti: List<Tratto>,
+        immagini: List<Immagine>,
+        pxPerUnita: Float,
+    ): Bitmap {
+        val scala = minOf(pxPerUnita, LATO_MAX_PX / max(riquadro.width(), 1f), LATO_MAX_PX / max(riquadro.height(), 1f))
+        val w = ceil(riquadro.width() * scala).toInt().coerceIn(1, LATO_MAX_PX)
+        val h = ceil(riquadro.height() * scala).toInt().coerceIn(1, LATO_MAX_PX)
+        val strokes = tratti.mapNotNull { t -> Pennelli.stroke(t)?.let { t to it } }
+        val m = Matrix().apply {
+            setTranslate(-riquadro.left, -riquadro.top)
+            postScale(scala, scala)
+        }
+        val disegna = { c: Canvas ->
+            val renderer = CanvasStrokeRenderer.create()
+            val v = MutableVec()
+            val pMatita = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
+            c.save()
+            c.concat(m)
+            Anteprima.disegnaOggetti(c, immagini, Foglio.LARGHEZZA * scala) { archivio.fileImmagine(info.id, it) }
+            for ((t, st) in strokes) {
+                if (!c.isHardwareAccelerated && t.penna == Penna.MATITA) {
+                    val stile = stilePdf(t)
+                    pMatita.color = (stile.alfa shl 24) or stile.rgb
+                    c.drawPath(percorso(contorni(st, v)), pMatita)
+                } else {
+                    renderer.draw(c, st, m)
+                }
+            }
+            c.restore()
+        }
+        return try {
+            disegnaInHardware(w, h, disegna, trasparente = true)
+        } catch (e: Exception) {
+            Log.w(TAG, "Disegno con la GPU non riuscito, uso la CPU", e)
+            Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888).also { disegna(Canvas(it)) }
+        }
+    }
+
     /** Come [immaginePagina], ma scrive direttamente il PNG su [out] (che resta aperto). */
     fun esportaPagina(
         archivio: Archivio,
@@ -351,7 +398,7 @@ object EsportaPdf {
      * Disegna con la GPU fuori dallo schermo (RenderNode -> HardwareRenderer -> ImageReader) e copia il
      * risultato in una bitmap normale. Serve perche' Ink disegna la matita solo su un canvas accelerato.
      */
-    private fun disegnaInHardware(w: Int, h: Int, disegna: (Canvas) -> Unit): Bitmap {
+    private fun disegnaInHardware(w: Int, h: Int, disegna: (Canvas) -> Unit, trasparente: Boolean = false): Bitmap {
         val nodo = RenderNode("esporta")
         nodo.setPosition(0, 0, w, h)
         val c = nodo.beginRecording(w, h)
@@ -366,6 +413,8 @@ object EsportaPdf {
         )
         val renderer = HardwareRenderer()
         try {
+            // Opaco, il fondo che non si disegna viene nero; trasparente resta trasparente.
+            if (trasparente) renderer.isOpaque = false
             renderer.setSurface(lettore.surface)
             renderer.setContentRoot(nodo)
             renderer.createRenderRequest().setWaitForPresent(true).syncAndDraw()

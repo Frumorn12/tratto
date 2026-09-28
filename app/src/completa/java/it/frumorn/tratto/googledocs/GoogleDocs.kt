@@ -2,7 +2,6 @@ package it.frumorn.tratto.googledocs
 
 import android.content.Context
 import it.frumorn.tratto.TrattoApp
-import it.frumorn.tratto.data.Testo
 import it.frumorn.tratto.backup.DriveBackup
 import it.frumorn.tratto.backup.ErroreDrive
 import it.frumorn.tratto.backup.temporaneo
@@ -51,12 +50,13 @@ data class StatoDocs(
 
 /**
  * Specchio di una nota in Google Docs (solo nella versione completa): chi apre il documento su un
- * computer lo vede aggiornarsi mentre si scrive sul tablet. Va in una sola direzione, da Tratto a
- * Google Docs: le modifiche fatte nel documento si perdono al prossimo aggiornamento.
+ * computer lo vede aggiornarsi mentre si scrive sul tablet. Tratto scrive nel documento solo i suoi
+ * blocchi (righe e disegni come immagini, caselle di testo come testo vero): quello che si aggiunge
+ * direttamente in Google Docs resta.
  *
  * - [collega] crea il documento nella cartella "Tratto" di Drive (stessa autorizzazione del backup,
  *   scope drive.file) e ricorda il collegamento in files/google-docs/collegamenti.json.
- * - [modificata], chiamata dall'editor dopo ogni salvataggio, aggiorna il documento 4 secondi dopo
+ * - [modificata], chiamata dall'editor dopo ogni salvataggio, aggiorna il documento un secondo dopo
  *   l'ultima modifica.
  * - [finisciInBackground], alla chiusura dell'editor o quando l'app va in secondo piano, affida gli
  *   aggiornamenti mancanti a [DocsWorker], che aspetta la rete e finisce anche ad app chiusa.
@@ -67,8 +67,11 @@ object GoogleDocs {
     /** Il collegamento a Google Docs c'e' in questa versione dell'app: la UI mostra le sue voci. */
     const val DISPONIBILE = true
 
-    /** Attesa dopo l'ultima modifica: chi scrive fa una pausa, il documento si aggiorna. */
-    private const val RITARDO_MS = 4000L
+    /**
+     * Attesa dopo l'ultima modifica (l'editor salva gia' un secondo dopo l'ultimo tratto): alla prima
+     * pausa il documento si aggiorna. Si cambiano solo i blocchi toccati, quindi basta poco.
+     */
+    private const val RITARDO_MS = 1000L
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
@@ -206,13 +209,7 @@ object GoogleDocs {
             val servizio = servizio(app)
             val cartelle = servizio.cartelle
             val archivio = TrattoApp.archivio(app)
-            // Il testo delle caselle di ogni pagina va sotto la sua immagine, come testo vero.
-            val nota = NotaArchivio(archivio, notaId) { id, pagina ->
-                archivio.oggetti(id, pagina.id).filterIsInstance<Testo>()
-                    .flatMap { it.contenuto.testoSemplice.split('\n') }
-                    .map { it.trim() }
-                    .filter { it.isNotEmpty() }
-            }
+            val nota = NotaArchivio(archivio, notaId)
             val sincronia = SincroniaDocs(servizio, nota, File(app.cacheDir, "google-docs"))
             try {
                 if (avanziDaPulire) {

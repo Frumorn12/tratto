@@ -1,15 +1,23 @@
 package it.frumorn.tratto.googledocs
 
 import android.graphics.Bitmap
+import android.graphics.RectF
 import it.frumorn.tratto.backup.ErroreDrive
 import it.frumorn.tratto.data.Archivio
 import it.frumorn.tratto.data.NotaInfo
+import it.frumorn.tratto.data.Oggetto
 import it.frumorn.tratto.data.Pagina
 import it.frumorn.tratto.data.Tratto
+import it.frumorn.tratto.editor.Impaginazione
 import it.frumorn.tratto.pdf.EsportaPdf
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONArray
@@ -17,13 +25,14 @@ import org.json.JSONObject
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.IOException
+import java.util.concurrent.ConcurrentHashMap
 
 /** La nota collegata non esiste piu' nell'archivio: il collegamento si toglie, il documento resta. */
 internal class NotaSparita : IOException("La nota non esiste più.")
 
-/** Google Docs non e' riuscito a scaricare le immagini delle pagine neanche riprovando: si riprova piu' tardi. */
+/** Google Docs non e' riuscito a scaricare le immagini dei blocchi neanche riprovando: si riprova piu' tardi. */
 internal class ImmagineNonScaricata(causa: Throwable) :
-    IOException("Google Docs non è riuscito a scaricare le immagini delle pagine: si riproverà.", causa)
+    IOException("Google Docs non è riuscito a scaricare le immagini: si riproverà.", causa)
 
 /** Il documento cambiava di continuo mentre lo si aggiornava: si riprova piu' tardi. */
 internal class DocumentoInMovimento : IOException("Il documento Google cambia mentre lo aggiorno: si riproverà.")
@@ -33,11 +42,11 @@ internal class Pubblicata(val id: String, val permesso: String)
 
 /** Il lato Google di [SincroniaDocs] ([ServizioGoogle]; nei test un Google finto). */
 internal interface ServizioDocs {
-    /** documents.get con i campi di [LetturaDoc.CAMPI]. */
+    /** documents.get con i campi di [DocLetto.CAMPI]. */
     suspend fun documento(id: String): JSONObject
 
-    /** documents.batchUpdate; un rifiuto e' un [ErroreDrive]. */
-    suspend fun aggiorna(id: String, richieste: JSONArray, revisione: String?)
+    /** documents.batchUpdate; restituisce la risposta (con le repliche). Un rifiuto e' un [ErroreDrive]. */
+    suspend fun aggiorna(id: String, richieste: JSONArray, revisione: String?): JSONObject
 
     /** Nome del file del documento su Drive. */
     suspend fun rinomina(id: String, nome: String)
@@ -49,6 +58,9 @@ internal interface ServizioDocs {
     suspend fun ritira(immagine: Pubblicata)
 }
 
+/** Una pagina letta: i suoi dati e i blocchi in cui si divide. */
+internal class PaginaLetta(val pagina: Pagina, val tratti: List<Tratto>, val oggetti: List<Oggetto>, val blocchi: List<BloccoPagina>)
+
 /** Il lato Tratto di [SincroniaDocs]: la nota da mettere nel documento ([NotaArchivio]; nei test una nota finta). */
 internal interface NotaDocs {
     val id: String
@@ -56,53 +68,48 @@ internal interface NotaDocs {
     /** Titolo e pagine, in ordine. [NotaSparita] se la nota non c'e' piu'. Fa I/O. */
     fun leggi(): Pair<NotaInfo, List<Pagina>>
 
-    /** [ImprontaPagina.firma] della pagina, o null se non si puo' fare. Fa I/O. */
-    fun firma(pagina: Pagina, testo: List<String>): String?
+    /** [FirmaPagina.firma] della pagina, o null se non si puo' fare. Fa I/O. */
+    fun firma(pagina: Pagina): String?
 
-    /** I tratti salvati della pagina. Fa I/O. */
-    fun tratti(pagina: Pagina): List<Tratto>
+    /** Legge tratti e oggetti della pagina e la divide in blocchi ([BlocchiPagina.dividi]). Fa I/O. */
+    fun leggiPagina(pagina: Pagina): PaginaLetta
 
-    /** Disegna la pagina in PNG su [file] e restituisce lo SHA-256 del PNG. */
-    suspend fun disegna(info: NotaInfo, pagina: Pagina, tratti: List<Tratto>, file: File): String
-
-    /**
-     * Punto di aggancio per il testo battuto della pagina: un elemento per paragrafo, messo come
-     * testo vero sotto la sua immagine (ed entra nell'impronta, cosi' l'immagine si rifa' se il testo
-     * e' disegnato anche li'). Per ora nessun testo: vedi [NotaArchivio].
-     */
-    fun testo(pagina: Pagina): List<String> = emptyList()
+    /** Disegna la figura [blocco] di [letta] in PNG su [file] e restituisce lo SHA-256 del PNG. */
+    suspend fun disegna(info: NotaInfo, letta: PaginaLetta, blocco: BloccoPagina, file: File): String
 }
 
-/**
- * La nota vera, dall'archivio. [testoPagina] e' il punto di aggancio per le caselle di testo: quando
- * le pagine le avranno, basta passare qui (in GoogleDocs) la funzione che ne restituisce il testo
- * semplice, un elemento per paragrafo.
- */
-internal class NotaArchivio(
-    private val archivio: Archivio,
-    override val id: String,
-    private val testoPagina: (notaId: String, pagina: Pagina) -> List<String> = { _, _ -> emptyList() },
-) : NotaDocs {
+/** La nota vera, dall'archivio. */
+internal class NotaArchivio(private val archivio: Archivio, override val id: String) : NotaDocs {
     override fun leggi(): Pair<NotaInfo, List<Pagina>> {
         archivio.caricaIndice()
         val info = archivio.note.value.find { it.id == id } ?: throw NotaSparita()
         return info to archivio.pagine(id)
     }
 
-    /** Il file dei tratti e' quello descritto in Archivio: se un giorno cambia posto, la firma e' null e si rilegge sempre. */
-    override fun firma(pagina: Pagina, testo: List<String>): String? {
-        val base = ImprontaPagina.firma(File(archivio.cartellaNota(id), "pagine/${pagina.id}.tp"), pagina, testo) ?: return null
-        // Immagini e caselle di testo stanno accanto ai tratti: se cambiano, la pagina va ridisegnata.
-        val oggetti = File(archivio.cartellaNota(id), "pagine/${pagina.id}.oggetti.json")
-        return if (oggetti.exists()) "$base|${oggetti.lastModified()}:${oggetti.length()}" else base
+    /** I file sono quelli descritti in Archivio: se un giorno cambiano posto, la firma e' null e si rilegge sempre. */
+    override fun firma(pagina: Pagina): String? {
+        val cartella = File(archivio.cartellaNota(id), "pagine")
+        return FirmaPagina.firma(File(cartella, "${pagina.id}.tp"), File(cartella, "${pagina.id}.oggetti.json"), pagina)
     }
 
-    override fun tratti(pagina: Pagina): List<Tratto> = archivio.tratti(id, pagina.id)
+    override fun leggiPagina(pagina: Pagina): PaginaLetta {
+        val tratti = archivio.tratti(id, pagina.id)
+        val oggetti = archivio.oggetti(id, pagina.id)
+        return PaginaLetta(pagina, tratti, oggetti, BlocchiPagina.dividi(pagina, tratti, oggetti) { Impaginazione.impagina(it).altezza })
+    }
 
-    override suspend fun disegna(info: NotaInfo, pagina: Pagina, tratti: List<Tratto>, file: File): String = withContext(Dispatchers.IO) {
-        val bmp = EsportaPdf.immaginePagina(archivio, info, pagina, SincroniaDocs.LARGHEZZA_PX, tratti)
+    override suspend fun disegna(info: NotaInfo, letta: PaginaLetta, blocco: BloccoPagina, file: File): String = withContext(Dispatchers.IO) {
+        val bmp = when (blocco) {
+            is BloccoPagina.Intera -> EsportaPdf.immaginePagina(
+                archivio, info, letta.pagina, (letta.pagina.larghezza * ContenutoDocs.PX_PER_UNITA).toInt(), letta.tratti, letta.oggetti,
+            )
+            is BloccoPagina.Disegno -> blocco.riquadro.let { r ->
+                EsportaPdf.immagineRitaglio(archivio, info, RectF(r.sinistra, r.alto, r.destra, r.basso), blocco.tratti, blocco.immagini, ContenutoDocs.PX_PER_UNITA)
+            }
+            is BloccoPagina.Scritta -> error("Una casella di testo non si disegna: va nel documento come testo")
+        }
         val dati = try {
-            ByteArrayOutputStream(256 * 1024).also { out ->
+            ByteArrayOutputStream(64 * 1024).also { out ->
                 if (!bmp.compress(Bitmap.CompressFormat.PNG, 100, out)) throw IOException("PNG non scritto")
             }.toByteArray()
         } finally {
@@ -110,19 +117,19 @@ internal class NotaArchivio(
         }
         file.parentFile?.mkdirs()
         file.writeBytes(dati)
-        ImprontaPagina.sha256(dati)
+        FirmaPagina.sha256(dati)
     }
-
-    override fun testo(pagina: Pagina): List<String> = testoPagina(id, pagina)
 }
 
 /**
- * Porta un documento Google allo stato di una nota: il titolo come titolo del documento, poi ogni
- * pagina come immagine in linea, in ordine, con sotto l'eventuale testo della pagina.
+ * Porta un documento Google allo stato di una nota: il titolo, poi ogni pagina divisa in blocchi
+ * ([BlocchiPagina]): le righe, le formule e i disegni come immagini trasparenti ritagliate, le
+ * caselle di testo come testo vero. Si toccano solo i blocchi di Tratto (vedi [PianoBlocchi]):
+ * quello che si aggiunge a mano nel documento resta.
  *
- * Si ricaricano solo le pagine cambiate: per ogni pagina il collegamento ricorda l'[ImprontaPagina]
- * dei dati disegnati, lo SHA-256 del PNG caricato e una firma economica (vedi [PaginaDocs]).
- * Le immagini pubblicate per il batchUpdate si ritirano subito dopo, qualunque cosa succeda.
+ * Si ricaricano solo i blocchi cambiati. Le pagine la cui firma non e' cambiata non si rileggono
+ * nemmeno: i loro blocchi sono quelli salvati. Le immagini pubblicate per il batchUpdate si ritirano
+ * subito dopo, qualunque cosa succeda.
  */
 internal class SincroniaDocs(
     private val servizio: ServizioDocs,
@@ -137,144 +144,103 @@ internal class SincroniaDocs(
         private set
 
     /**
-     * Aggiorna il documento di [collegamento]. Le immagini nuove si caricano a gruppi di
+     * Aggiorna il documento di [collegamento]. Le figure nuove si caricano a gruppi di
      * [LIMITE_IMMAGINI]; dopo ogni gruppo [progresso] riceve il collegamento aggiornato, da salvare.
      * Restituisce il collegamento finale.
      */
     suspend fun sincronizza(collegamento: CollegamentoDocs, progresso: suspend (CollegamentoDocs) -> Unit = {}): CollegamentoDocs {
         val (info, pagine) = withContext(Dispatchers.IO) { nota.leggi() }
-        val testi = pagine.associate { p ->
-            p.id to runCatching { nota.testo(p) }.getOrDefault(emptyList()).flatMap { it.split('\n') }.map(::pulisciTesto)
+        // Le firme si prendono prima di leggere: se un file cambia intanto, la prossima volta non coincide.
+        val firme = withContext(Dispatchers.IO) {
+            pagine.withIndex().associate { (i, p) -> p.id to nota.firma(p)?.let { "$it|${i == 0}" } }
         }
-        val voluti = ArrayList<Voluto>()
-        voluti += Voluto.Testo(pulisciTesto(EsportaPdf.titolo(info)), StileParagrafo.TITOLO)
-        for (p in pagine) {
-            voluti += Voluto.immagine(p.id, p.larghezza, p.altezza)
-            testi.getValue(p.id).forEach { voluti += Voluto.Testo(it) }
-        }
-        val perId = pagine.associateBy { it.id }
+        val lette = HashMap<String, PaginaLetta>()
         val nome = nomeDocumento(info)
 
         var link = collegamento
-        var doc: JSONObject? = null
         var rinominato = false
         var rifiuti = 0
-        var ricostruisci = false
-        // Un giro per gruppo di immagini, piu' qualcuno per i documenti cambiati nel frattempo.
-        repeat(pagine.size / LIMITE_IMMAGINI + 5) {
-            val d = doc ?: servizio.documento(link.documento)
-            doc = null
+        repeat(MAX_GIRI) {
+            val d = DocLetto.da(servizio.documento(link.documento))
             if (!rinominato) {
-                if (d.optString("title") != nome) servizio.rinomina(link.documento, nome)
+                if (d.titolo != nome) servizio.rinomina(link.documento, nome)
                 rinominato = true
             }
-            val attuali = if (ricostruisci) corpoIntero(d) else LetturaDoc.paragrafi(d, link.immagini())
-            val completo = PianoDocs(attuali, voluti)
 
-            // Pagine da ridisegnare: quelle da inserire e quelle rimaste i cui dati sono cambiati.
-            // [verificate]: pagine rimaste con l'immagine ancora giusta, di cui ricordare impronta e firma nuove.
-            val verificate = HashMap<String, Verifica>()
-            val candidate = ArrayList<String>()
-            withContext(Dispatchers.IO) {
-                for (p in pagine) {
-                    val salvata = link.pagine[p.id]
-                    if (p.id !in completo.tenute || salvata == null) {
-                        candidate += p.id
-                        continue
-                    }
-                    // La firma prima dei tratti: se il file cambia intanto, la prossima volta non coincide.
-                    val firma = nota.firma(p, testi.getValue(p.id))
-                    if (firma != null && firma == salvata.firma) continue
-                    val impronta = ImprontaPagina.di(p, nota.tratti(p), testi.getValue(p.id))
-                    if (impronta == salvata.impronta) verificate[p.id] = Verifica(impronta, firma) else candidate += p.id
-                }
-            }
-
-            // Un gruppo alla volta. Le pagine nuove rimaste fuori per ora non entrano nel documento;
-            // se il piano ridotto ne vuole comunque qualcuna (ordine cambiato), entra nel gruppo.
-            val gruppo = LinkedHashSet(candidate.take(LIMITE_IMMAGINI))
-            var piano: PianoDocs
-            var volutiGiro: List<Voluto>
+            // I blocchi voluti; se il piano ha bisogno di pagine non lette (testi da riscrivere,
+            // figure da ridisegnare), si leggono e si rifa'.
+            var voluti: List<BloccoVoluto>
+            var piano: PianoBlocchi
             while (true) {
-                val escluse = candidate.filter { it !in gruppo && it !in completo.tenute }.toSet()
-                volutiGiro = if (escluse.isEmpty()) voluti else volutiSenza(voluti, escluse)
-                piano = PianoDocs(attuali, volutiGiro)
-                val mancanti = piano.daInserire.map { it.pagina }.filter { it !in gruppo }
-                if (mancanti.isEmpty()) break
-                gruppo += mancanti
+                voluti = voluti(info, pagine, firme, lette, link)
+                piano = PianoBlocchi(d, link.blocchi, voluti, link.vecchio)
+                val daLeggere = (piano.senzaContenuto.map { it.pagina } + piano.daDisegnare.map { it.pagina })
+                    .filterNotNull().filter { it !in lette }.toSet()
+                if (daLeggere.isEmpty()) break
+                withContext(Dispatchers.IO) { for (p in pagine) if (p.id in daLeggere) lette[p.id] = nota.leggiPagina(p) }
             }
-            val ultimoGruppo = candidate.all { it in gruppo }
 
-            // Disegno delle pagine del gruppo; quelle rimaste con un disegno identico non si caricano.
+            // Un gruppo di figure alla volta: le altre restano come sono fino al giro dopo (quelle
+            // gia' nel documento) o per ora non entrano (quelle nuove).
+            val rinviate = HashSet<String>()
+            while (piano.daDisegnare.size > LIMITE_IMMAGINI) {
+                val oltre = piano.daDisegnare.drop(LIMITE_IMMAGINI).map { it.chiave }.toSet()
+                voluti = if (rinviate.addAll(oltre)) rinvia(voluti, rinviate, link) else voluti.filter { it.chiave !in oltre }
+                piano = PianoBlocchi(d, link.blocchi, voluti, link.vecchio)
+            }
+
             val disegni = LinkedHashMap<String, Disegno>()
-            val pubblicate = LinkedHashMap<String, Pubblicata>()
+            val pubblicate = ConcurrentHashMap<String, Pubblicata>()
             try {
-                for (id in gruppo) {
-                    val p = perId.getValue(id)
-                    val testo = testi.getValue(id)
-                    val (firma, tratti) = withContext(Dispatchers.IO) { nota.firma(p, testo) to nota.tratti(p) }
-                    val verifica = Verifica(ImprontaPagina.di(p, tratti, testo), firma)
-                    val file = File(cartellaLocale, "${nota.id}-$id.png")
-                    val png = nota.disegna(info, p, tratti, file)
-                    val salvata = link.pagine[id]
-                    if (id in piano.tenute && salvata != null && salvata.png == png) {
-                        verificate[id] = verifica
+                // Disegno delle figure; quelle rimaste al loro posto con un disegno identico non si ricaricano.
+                val salvati = link.blocchi.associateBy { it.chiave }
+                val tenute = piano.tenute
+                val identiche = HashSet<String>()
+                for (f in piano.daDisegnare) {
+                    val letta = lette.getValue(f.pagina!!)
+                    val blocco = letta.blocchi.first { chiave(letta.pagina, it) == f.chiave }
+                    val file = File(cartellaLocale, "${nota.id}-${f.chiave.replace('/', '-')}.png")
+                    val png = nota.disegna(info, letta, blocco, file)
+                    val s = salvati[f.chiave]
+                    if (f.chiave in tenute && s != null && s.figura && s.png == png && s.larghezzaPt == f.larghezzaPt && s.altezzaPt == f.altezzaPt) {
+                        identiche += f.chiave
                         file.delete()
-                        continue
+                    } else {
+                        disegni[f.chiave] = Disegno(file, png)
                     }
-                    disegni[id] = Disegno(file, png, verifica)
                 }
+                if (identiche.isNotEmpty()) piano = PianoBlocchi(d, link.blocchi, voluti, link.vecchio, identiche)
 
-                if (piano.strutturaUguale && disegni.isEmpty()) {
-                    // Il documento e' gia' giusto: si ricordano solo impronte e firme controllate.
-                    link = link.copy(pagine = link.pagine.mapValues { (id, v) -> verificate[id]?.let { v.conVerifica(it) } ?: v })
-                    if (ultimoGruppo) return link
+                if (piano.vuoto) {
+                    link = chiudiGiro(link, piano.stato(null, null, emptyMap()), pagine, firme, lette, rinviate)
                     progresso(link)
-                    doc = d
+                    if (rinviate.isEmpty()) return link
                     return@repeat
                 }
 
-                try {
-                    for ((id, disegno) in disegni) pubblicate[id] = servizio.pubblica(disegno.file, "${nota.id}-$id.png")
-                    aggiornaDocumento(link.documento, piano, pubblicate, d.optString("revisionId").takeIf { it.isNotEmpty() })
+                // Solo le figure che il piano mette davvero (le identiche no).
+                val servono = piano.daDisegnare.map { it.chiave }.toSet()
+                coroutineScope {
+                    val permessi = Semaphore(PUBBLICAZIONI_INSIEME)
+                    servono.map { k ->
+                        async { permessi.withPermit { pubblicate[k] = servizio.pubblica(disegni.getValue(k).file, "${nota.id}-${k.replace('/', '-')}.png") } }
+                    }.awaitAll()
+                }
+                val (richieste, risposta) = try {
+                    aggiornaDocumento(link.documento, piano, HashMap(pubblicate), d.revisione)
                 } catch (e: ErroreDrive) {
                     // 400: il documento e' cambiato dopo averlo letto (requiredRevisionId), oppure Docs
-                    // rifiuta le richieste ("Invalid requests[n]..."). Si rilegge il documento; se le
-                    // richieste vengono rifiutate di nuovo si svuota il corpo e si riscrive tutto.
-                    if (e.codice != 400 || ++rifiuti > 3) throw e
-                    ricostruisci = rifiuti >= 2 && e.dettaglio?.contains("Invalid requests") == true
+                    // rifiuta le richieste. Si rilegge il documento e si rifa' il piano.
+                    if (e.codice != 400 || ++rifiuti > MAX_RIFIUTI) throw e
                     return@repeat
                 }
-                ricostruisci = false
-
-                // Gli id delle immagini dopo le modifiche, nell'ordine delle pagine.
-                val dopo = servizio.documento(link.documento)
-                val ids = LetturaDoc.immagini(dopo)
-                val volute = volutiGiro.filterIsInstance<Voluto.Immagine>()
-                val nuove = LinkedHashMap<String, PaginaDocs>()
-                val riconosciuto = ids.size == volute.size
-                if (riconosciuto) {
-                    for ((k, v) in volute.withIndex()) {
-                        val disegno = disegni[v.pagina]
-                        val prima = link.pagine[v.pagina]
-                        nuove[v.pagina] = when {
-                            disegno != null -> PaginaDocs(ids[k], v.dimensione, disegno.verifica.impronta, disegno.png, disegno.verifica.firma ?: "")
-                            // Immagine rimasta: impronta nuova se controllata, altrimenti la vecchia (da rifare).
-                            prima != null -> (verificate[v.pagina]?.let { prima.conVerifica(it) } ?: prima).copy(oggetto = ids[k])
-                            else -> continue
-                        }
-                    }
-                } else {
-                    // Qualcuno ha cambiato il documento proprio adesso: si tiene quello che si riconosce ancora.
-                    for ((id, v) in link.pagine) if (v.oggetto in ids && id !in disegni) nuove[id] = v
-                }
-                link = link.copy(pagine = nuove)
+                val nuovi = piano.stato(richieste, risposta, disegni.mapValues { it.value.png })
+                link = chiudiGiro(link, nuovi, pagine, firme, lette, rinviate)
                 progresso(link)
-                if (ultimoGruppo && riconosciuto) return link
-                doc = dopo
+                if (rinviate.isEmpty()) return link
             } finally {
                 withContext(NonCancellable) {
-                    ritira(pubblicate.values)
+                    ritira(pubblicate.values.toList())
                     disegni.values.forEach { it.file.delete() }
                 }
             }
@@ -282,14 +248,87 @@ internal class SincroniaDocs(
         throw DocumentoInMovimento()
     }
 
-    /** Le richieste nel documento; se Google non riesce a scaricare le immagini si aspetta e si prova l'altro indirizzo. */
-    private suspend fun aggiornaDocumento(documento: String, piano: PianoDocs, pubblicate: Map<String, Pubblicata>, revisione: String?) {
+    /** I blocchi voluti della nota: il titolo, poi le pagine (dai dati letti, o i blocchi salvati se la pagina non e' cambiata). */
+    private suspend fun voluti(
+        info: NotaInfo,
+        pagine: List<Pagina>,
+        firme: Map<String, String?>,
+        lette: MutableMap<String, PaginaLetta>,
+        link: CollegamentoDocs,
+    ): List<BloccoVoluto> {
+        val out = ArrayList<BloccoVoluto>()
+        out += ContenutoDocs.titolo(EsportaPdf.titolo(info))
+        val salvatiPerPagina = link.blocchi.groupBy { it.pagina }
+        for ((i, p) in pagine.withIndex()) {
+            val letta = lette[p.id]
+            val firma = firme[p.id]
+            if (letta == null && !link.vecchio && firma != null && link.firme[p.id] == firma) {
+                salvatiPerPagina[p.id].orEmpty().mapTo(out) { daSalvato(it) }
+                continue
+            }
+            out += daPagina(letta ?: withContext(Dispatchers.IO) { nota.leggiPagina(p) }.also { lette[p.id] = it }, i == 0)
+        }
+        return out
+    }
+
+    private fun daPagina(letta: PaginaLetta, prima: Boolean): List<BloccoVoluto> {
+        val aspetti = ContenutoDocs.aspetti(letta.blocchi, prima)
+        return letta.blocchi.mapIndexed { i, b ->
+            val chiave = chiave(letta.pagina, b)
+            val impronta = BlocchiPagina.impronta(letta.pagina, b, letta.tratti, letta.oggetti)
+            when (b) {
+                is BloccoPagina.Scritta -> BloccoVoluto.Scritto(chiave, letta.pagina.id, impronta, aspetti[i], ContenutoDocs.paragrafi(b.testo.contenuto))
+                else -> {
+                    val (w, h) = ContenutoDocs.misure(b)
+                    BloccoVoluto.Figura(chiave, letta.pagina.id, impronta, aspetti[i], w, h)
+                }
+            }
+        }
+    }
+
+    /** Le figure [rinviate] restano come sono nel documento (quelle nuove per ora non entrano). */
+    private fun rinvia(voluti: List<BloccoVoluto>, rinviate: Set<String>, link: CollegamentoDocs): List<BloccoVoluto> {
+        val salvati = link.blocchi.associateBy { it.chiave }
+        return voluti.mapNotNull { v ->
+            if (v.chiave !in rinviate || v !is BloccoVoluto.Figura) return@mapNotNull v
+            val s = salvati[v.chiave]?.takeIf { it.figura } ?: return@mapNotNull null
+            v.copy(impronta = s.impronta, larghezzaPt = s.larghezzaPt, altezzaPt = s.altezzaPt)
+        }
+    }
+
+    /**
+     * Il collegamento dopo un giro: i blocchi nuovi e le firme delle pagine lette, tranne quelle con
+     * figure rinviate (la prossima volta si rileggono).
+     */
+    private fun chiudiGiro(
+        link: CollegamentoDocs,
+        blocchi: List<BloccoSalvato>,
+        pagine: List<Pagina>,
+        firme: Map<String, String?>,
+        lette: Map<String, PaginaLetta>,
+        rinviate: Set<String>,
+    ): CollegamentoDocs {
+        val conRinvii = rinviate.map { it.substringBefore('/') }.toSet()
+        val nuove = LinkedHashMap<String, String>()
+        for (p in pagine) {
+            val f = if (p.id in lette) firme[p.id] else link.firme[p.id]
+            if (f != null && p.id !in conRinvii) nuove[p.id] = f
+        }
+        return link.copy(blocchi = blocchi, firme = nuove, vecchio = false)
+    }
+
+    /** batchUpdate; se Google non riesce a scaricare le immagini si aspetta e si prova l'altro indirizzo. */
+    private suspend fun aggiornaDocumento(
+        documento: String,
+        piano: PianoBlocchi,
+        pubblicate: Map<String, Pubblicata>,
+        revisione: String?,
+    ): Pair<PianoBlocchi.Richieste, JSONObject> {
         var tentativo = 0
         while (true) {
-            val uri = pubblicate.mapValues { indirizzoImmagine(it.value.id, tentativo) }
+            val richieste = piano.richieste(pubblicate.mapValues { indirizzoImmagine(it.value.id, tentativo) })
             try {
-                servizio.aggiorna(documento, piano.richieste(uri), revisione)
-                return
+                return richieste to servizio.aggiorna(documento, richieste.json, revisione)
             } catch (e: ErroreDrive) {
                 if (e.codice != 400 || !immagineNonScaricata(e.dettaglio)) throw e
                 if (++tentativo >= TENTATIVI_IMMAGINI) throw ImmagineNonScaricata(e)
@@ -308,31 +347,33 @@ internal class SincroniaDocs(
         if (finito == null) avanzi = true
     }
 
-    /** Un solo paragrafo finto che copre tutto il corpo: il piano lo cancella e riscrive tutto. */
-    private fun corpoIntero(doc: JSONObject): List<ParagrafoDoc> {
-        val fine = LetturaDoc.paragrafi(doc, emptyMap()).lastOrNull()?.fine ?: 2
-        return listOf(ParagrafoDoc(1, fine, "X\u0000tutto"))
-    }
-
-    /** Impronta dei dati di una pagina e la firma presa prima di leggerli. */
-    private class Verifica(val impronta: String, val firma: String?)
-
-    private fun PaginaDocs.conVerifica(v: Verifica) = copy(impronta = v.impronta, firma = v.firma ?: "")
-
-    private class Disegno(val file: File, val png: String, val verifica: Verifica)
+    private class Disegno(val file: File, val png: String)
 
     companion object {
-        /** Larghezza delle immagini delle pagine: nitide anche ingrandite nel documento (circa 260 dpi). */
-        const val LARGHEZZA_PX = 1600
+        /** Figure nuove per ogni batchUpdate: una nota lunga appena collegata entra a gruppi. */
+        const val LIMITE_IMMAGINI = 20
 
-        /** Immagini nuove per ogni batchUpdate: una nota lunga appena collegata entra a gruppi. */
-        const val LIMITE_IMMAGINI = 10
+        /** Immagini caricate su Drive insieme. */
+        private const val PUBBLICAZIONI_INSIEME = 4
 
         private const val TENTATIVI_IMMAGINI = 3
+        private const val MAX_RIFIUTI = 3
         private const val TEMPO_PULIZIA_MS = 30_000L
 
+        /** Giri al massimo: i gruppi di una nota lunghissima, piu' qualcuno per i documenti cambiati nel frattempo. */
+        private const val MAX_GIRI = 60
+
         fun nomeDocumento(info: NotaInfo): String =
-            pulisciTesto(EsportaPdf.titolo(info)).take(200).ifBlank { EsportaPdf.TITOLO_PREDEFINITO }
+            ContenutoDocs.pulisci(EsportaPdf.titolo(info)).trim().take(200).ifBlank { EsportaPdf.TITOLO_PREDEFINITO }
+
+        /** La chiave di un blocco nella nota: pagina e blocco. */
+        fun chiave(pagina: Pagina, b: BloccoPagina) = "${pagina.id}/${b.chiave}"
+
+        private fun daSalvato(s: BloccoSalvato): BloccoVoluto {
+            val a = s.aspetto.split(',').mapNotNull { it.toIntOrNull() }.let { if (it.size == 2) Aspetto(it[0], it[1]) else Aspetto.NESSUNO }
+            return if (s.figura) BloccoVoluto.Figura(s.chiave, s.pagina, s.impronta, a, s.larghezzaPt, s.altezzaPt)
+            else BloccoVoluto.Scritto(s.chiave, s.pagina, s.impronta, a, null)
+        }
 
         /**
          * Indirizzo pubblico di un file di Drive che Google Docs accetta. Prima lh3.googleusercontent.com
@@ -346,18 +387,6 @@ internal class SincroniaDocs(
         fun immagineNonScaricata(dettaglio: String?): Boolean {
             val d = dettaglio?.lowercase() ?: return false
             return "image" in d && ("retriev" in d || "forbidden" in d || "publicly accessible" in d)
-        }
-
-        /** Tutti i voluti tranne le immagini (e il testo sotto) delle pagine [escluse]. */
-        fun volutiSenza(voluti: List<Voluto>, escluse: Set<String>): List<Voluto> {
-            val out = ArrayList<Voluto>()
-            var salta = false
-            for (v in voluti) {
-                if (v is Voluto.Immagine) salta = v.pagina in escluse
-                else if (v.stile == StileParagrafo.TITOLO) salta = false
-                if (!salta) out += v
-            }
-            return out
         }
     }
 }

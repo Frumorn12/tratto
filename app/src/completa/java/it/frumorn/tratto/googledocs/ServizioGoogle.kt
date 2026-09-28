@@ -13,7 +13,7 @@ import java.net.URLEncoder
 /** Le due chiamate dell'API di Google Docs usate da Tratto, con il client (token e tentativi) di Drive. */
 internal class DocsRest(private val rest: DriveRest) {
     suspend fun documento(id: String): JSONObject =
-        rest.richiesta("GET", "$API/documents/$id?fields=${URLEncoder.encode(LetturaDoc.CAMPI, "UTF-8")}")
+        rest.richiesta("GET", "$API/documents/$id?fields=${URLEncoder.encode(DocLetto.CAMPI, "UTF-8")}")
 
     suspend fun aggiorna(id: String, richieste: JSONArray, revisione: String? = null): JSONObject =
         rest.richiesta("POST", "$API/documents/$id:batchUpdate", RichiesteDocs.corpo(richieste, revisione))
@@ -77,9 +77,8 @@ internal class ServizioGoogle(private val rest: DriveRest, val cartelle: Cartell
 
     override suspend fun documento(id: String): JSONObject = docs.documento(id)
 
-    override suspend fun aggiorna(id: String, richieste: JSONArray, revisione: String?) {
+    override suspend fun aggiorna(id: String, richieste: JSONArray, revisione: String?): JSONObject =
         docs.aggiorna(id, richieste, revisione)
-    }
 
     override suspend fun rinomina(id: String, nome: String) {
         rest.aggiornaMetadati(id, JSONObject().put("name", nome))

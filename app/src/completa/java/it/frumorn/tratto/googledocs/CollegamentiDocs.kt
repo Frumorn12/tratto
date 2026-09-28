@@ -1,48 +1,69 @@
 package it.frumorn.tratto.googledocs
 
-import it.frumorn.tratto.data.Pagina
-import it.frumorn.tratto.data.Tratto
+import org.json.JSONArray
 import org.json.JSONException
 import org.json.JSONObject
-import java.io.DataOutputStream
 import java.io.File
-import java.io.OutputStream
-import java.security.DigestOutputStream
 import java.security.MessageDigest
 
-/** Una pagina di Tratto gia' nel documento Google. */
-internal data class PaginaDocs(
-    /** Id dell'immagine nel documento (inlineObjectId). */
-    val oggetto: String,
-    /** Dimensione della pagina quando l'immagine e' stata inserita (vedi [Voluto.Immagine.dimensione]). */
-    val dimensione: String,
-    /** [ImprontaPagina] dei dati della pagina disegnata: finche' non cambia non si ridisegna niente. */
+/**
+ * Un blocco di Tratto gia' nel documento Google (vedi [BloccoVoluto]). Si ritrova nel documento cosi':
+ * una figura dall'id della sua immagine ([oggetto]), un testo dal suo intervallo con nome ([intervallo],
+ * che si chiama [nomeIntervallo]) e dall'impronta dei suoi paragrafi ([paragrafi]).
+ */
+internal data class BloccoSalvato(
+    val chiave: String,
+    val figura: Boolean,
+    /** Pagina di Tratto da cui viene (null per il titolo della nota). */
+    val pagina: String?,
+    /** Impronta dei dati da cui e' fatto: finche' non cambia, il blocco nel documento e' giusto. */
     val impronta: String,
-    /** SHA-256 del PNG caricato: se il disegno nuovo e' identico non si ricarica. */
-    val png: String,
-    /**
-     * Firma economica dei dati quando si e' calcolata l'[impronta] (data e dimensione del file dei
-     * tratti, la pagina, il testo): finche' non cambia non si rileggono nemmeno i tratti.
-     */
-    val firma: String = "",
-)
-
-/** Una nota collegata: il suo documento Google e le pagine che ci sono dentro. */
-internal data class CollegamentoDocs(val documento: String, val pagine: Map<String, PaginaDocs> = emptyMap()) {
-    /** Id dell'immagine -> [chiaveImmagine], per riconoscere le immagini di Tratto nel documento. */
-    fun immagini(): Map<String, String> = pagine.entries.associate { (p, v) -> v.oggetto to chiaveImmagine(p, v.dimensione) }
+    /** Posizione nel documento (vedi [Aspetto.codice]). */
+    val aspetto: String,
+    /** Figura: id dell'immagine nel documento (inlineObjectId). */
+    val oggetto: String? = null,
+    /** Figura: SHA-256 del PNG caricato; se il disegno nuovo e' identico non si ricarica. */
+    val png: String? = null,
+    /** Testo: id dell'intervallo con nome che lo copre. */
+    val intervallo: String? = null,
+    /** Testo: impronta del testo di ogni paragrafo come l'ha scritto Tratto (vedi [impronta]). */
+    val paragrafi: List<String> = emptyList(),
+    /** Figura: misure nel documento, in punti. */
+    val larghezzaPt: Double = 0.0,
+    val altezzaPt: Double = 0.0,
+) {
+    companion object {
+        /** Impronta breve del testo di un paragrafo, per riconoscere se nel documento e' stato cambiato. */
+        fun impronta(testo: String): String =
+            MessageDigest.getInstance("SHA-256").digest(testo.toByteArray(Charsets.UTF_8)).take(12).joinToString("") { "%02x".format(it) }
+    }
 }
+
+/**
+ * Una nota collegata: il suo documento Google e i blocchi che Tratto ci ha messo, in ordine.
+ * [firme] ricorda per ogni pagina la firma dei dati quando i suoi blocchi sono stati messi nel
+ * documento: finche' non cambia, la pagina non si rilegge. [vecchio] e' un documento fatto dalla
+ * prima versione (una immagine per pagina): al primo aggiornamento si svuota e si rifa' a blocchi.
+ */
+internal data class CollegamentoDocs(
+    val documento: String,
+    val blocchi: List<BloccoSalvato> = emptyList(),
+    val firme: Map<String, String> = emptyMap(),
+    val vecchio: Boolean = false,
+)
 
 /**
  * Le note collegate a Google Docs, salvate in files/google-docs/collegamenti.json:
  *
- *   {"versione": 1, "cartella": "<id di Tratto su Drive>", "immagini": "<id della cartella temporanea>",
- *    "note": {"<notaId>": {"documento": "<id del documento>",
- *                          "pagine": {"<paginaId>": {"oggetto": .., "dimensione": .., "impronta": .., "png": .., "firma": ..}}}}}
+ *   {"versione": 2, "cartella": "<id di Tratto su Drive>", "immagini": "<id della cartella temporanea>",
+ *    "note": {"<notaId>": {"documento": "<id>", "firme": {"<paginaId>": ".."},
+ *                          "blocchi": [{"chiave": .., "figura": true, "pagina": .., "impronta": .., "aspetto": ..,
+ *                                       "oggetto": .., "png": .., "larghezza": .., "altezza": ..},
+ *                                      {"chiave": .., "figura": false, .., "intervallo": .., "paragrafi": [..]}]}}}
  *
  * Il file sta fuori da files/tratto apposta: e' lo stato della sincronizzazione di questo tablet,
  * come files/backup/drive.json, e non deve finire nei backup ne' essere sostituito da un ripristino.
- * Il modello delle note (nota.json, indice.json) non cambia.
+ * Un file della versione 1 (una immagine per pagina) si legge con le note segnate [CollegamentoDocs.vecchio].
  */
 internal data class CollegamentiDocs(
     val note: Map<String, CollegamentoDocs> = emptyMap(),
@@ -54,15 +75,20 @@ internal data class CollegamentiDocs(
     fun json(): JSONObject {
         val n = JSONObject()
         for ((id, c) in note) {
-            val p = JSONObject()
-            for ((pid, v) in c.pagine) {
-                p.put(
-                    pid,
-                    JSONObject().put("oggetto", v.oggetto).put("dimensione", v.dimensione).put("impronta", v.impronta)
-                        .put("png", v.png).put("firma", v.firma),
-                )
+            val blocchi = JSONArray()
+            for (b in c.blocchi) {
+                val j = JSONObject().put("chiave", b.chiave).put("figura", b.figura).put("impronta", b.impronta).put("aspetto", b.aspetto)
+                b.pagina?.let { j.put("pagina", it) }
+                if (b.figura) {
+                    j.put("oggetto", b.oggetto ?: "").put("png", b.png ?: "").put("larghezza", b.larghezzaPt).put("altezza", b.altezzaPt)
+                } else {
+                    j.put("intervallo", b.intervallo ?: "").put("paragrafi", JSONArray(b.paragrafi))
+                }
+                blocchi.put(j)
             }
-            n.put(id, JSONObject().put("documento", c.documento).put("pagine", p))
+            val c2 = JSONObject().put("documento", c.documento).put("blocchi", blocchi).put("firme", JSONObject(c.firme as Map<*, *>))
+            if (c.vecchio) c2.put("vecchio", true)
+            n.put(id, c2)
         }
         return JSONObject()
             .put("versione", VERSIONE)
@@ -72,7 +98,7 @@ internal data class CollegamentiDocs(
     }
 
     companion object {
-        const val VERSIONE = 1
+        const val VERSIONE = 2
 
         /** Legge il file; se manca o e' rovinato si riparte senza collegamenti (i documenti su Drive restano). */
         fun leggi(testo: String?): CollegamentiDocs {
@@ -81,73 +107,74 @@ internal data class CollegamentiDocs(
             } catch (_: JSONException) {
                 return CollegamentiDocs()
             }
+            val prima = j.optInt("versione", 1) < 2
             val note = LinkedHashMap<String, CollegamentoDocs>()
             val n = j.optJSONObject("note")
             n?.keys()?.forEach { id ->
                 val c = n.optJSONObject(id) ?: return@forEach
                 val documento = c.stringa("documento") ?: return@forEach
-                val pagine = LinkedHashMap<String, PaginaDocs>()
-                val p = c.optJSONObject("pagine")
-                p?.keys()?.forEach { pid ->
-                    val v = p.optJSONObject(pid) ?: return@forEach
-                    val oggetto = v.stringa("oggetto") ?: return@forEach
-                    pagine[pid] = PaginaDocs(oggetto, v.optString("dimensione"), v.optString("impronta"), v.optString("png"), v.optString("firma"))
+                note[id] = if (prima) {
+                    // Versione 1: il documento e' tutto di Tratto (titolo e una immagine per pagina).
+                    CollegamentoDocs(documento, vecchio = true)
+                } else {
+                    CollegamentoDocs(documento, blocchi(c.optJSONArray("blocchi")), firme(c.optJSONObject("firme")), c.optBoolean("vecchio"))
                 }
-                note[id] = CollegamentoDocs(documento, pagine)
             }
             return CollegamentiDocs(note, j.stringa("cartella"), j.stringa("immagini"))
         }
 
+        private fun blocchi(a: JSONArray?): List<BloccoSalvato> {
+            if (a == null) return emptyList()
+            val out = ArrayList<BloccoSalvato>()
+            val viste = HashSet<String>()
+            for (i in 0 until a.length()) {
+                val b = a.optJSONObject(i) ?: continue
+                val chiave = b.stringa("chiave") ?: continue
+                if (!viste.add(chiave)) continue
+                val figura = b.optBoolean("figura")
+                val par = b.optJSONArray("paragrafi")
+                out += BloccoSalvato(
+                    chiave = chiave,
+                    figura = figura,
+                    pagina = b.stringa("pagina"),
+                    impronta = b.optString("impronta"),
+                    aspetto = b.optString("aspetto"),
+                    oggetto = b.stringa("oggetto"),
+                    png = b.stringa("png"),
+                    intervallo = b.stringa("intervallo"),
+                    paragrafi = if (par == null) emptyList() else (0 until par.length()).map { par.optString(it) },
+                    larghezzaPt = b.optDouble("larghezza", 0.0),
+                    altezzaPt = b.optDouble("altezza", 0.0),
+                )
+            }
+            return out
+        }
+
+        private fun firme(o: JSONObject?): Map<String, String> {
+            if (o == null) return emptyMap()
+            val out = LinkedHashMap<String, String>()
+            o.keys().forEach { k -> o.stringa(k)?.let { out[k] = it } }
+            return out
+        }
+
         /** Stringa non vuota o null (optString di Android da' "null" per i valori null). */
         private fun JSONObject.stringa(nome: String): String? =
-            if (isNull(nome)) null else optString(nome).takeIf { it.isNotEmpty() }
+            if (!has(nome) || isNull(nome)) null else optString(nome).takeIf { it.isNotEmpty() }
     }
 }
 
-/**
- * Impronta dei dati da cui si disegna una pagina: tratti, sfondo, dimensioni, pagina del PDF e il
- * testo aggiunto sotto. Se non cambia, l'immagine nel documento e' ancora giusta e non si ridisegna.
- * Pagina e' una data class: il suo toString() contiene anche i campi che verranno aggiunti.
- */
-internal object ImprontaPagina {
-    /** Da aumentare quando cambia il modo di disegnare le pagine: si ridisegnano tutte. */
-    const val VERSIONE = 1
-
-    fun di(pagina: Pagina, tratti: List<Tratto>, testo: List<String>): String {
-        val md = MessageDigest.getInstance("SHA-256")
-        DataOutputStream(DigestOutputStream(OutputStream.nullOutputStream(), md)).use { d ->
-            d.writeInt(VERSIONE)
-            scrivi(d, pagina.toString())
-            d.writeInt(tratti.size)
-            for (t in tratti) {
-                d.writeLong(t.id)
-                d.writeInt(t.penna.ordinal)
-                d.writeInt(t.colore)
-                d.writeFloat(t.spessore)
-                d.writeInt(t.punti.size)
-                for (f in t.punti) d.writeFloat(f)
-            }
-            d.writeInt(testo.size)
-            testo.forEach { scrivi(d, it) }
-        }
-        return esadecimale(md.digest())
-    }
-
+/** Firma economica di una pagina, senza leggere i tratti: vedi [firma]. */
+internal object FirmaPagina {
     /**
-     * Firma economica, senza leggere i tratti: data e dimensione del loro [file], la pagina e il testo.
-     * Null se il file non c'e' (pagina vuota mai salvata, o un formato diverso): allora si legge sempre.
-     * Va presa prima di leggere i tratti: se il file cambia nel frattempo, la volta dopo non coincide.
+     * Data e dimensione dei file della pagina (tratti e oggetti), la pagina stessa e la versione del
+     * modo di dividerla. Null se il file dei tratti non c'e': allora la pagina si legge sempre.
+     * Va presa prima di leggere i dati: se un file cambia nel frattempo, la volta dopo non coincide.
      */
-    fun firma(file: File, pagina: Pagina, testo: List<String>): String? =
-        if (file.isFile) "${file.lastModified()}:${file.length()}:$pagina:${testo.hashCode()}" else null
-
-    fun sha256(b: ByteArray): String = esadecimale(MessageDigest.getInstance("SHA-256").digest(b))
-
-    private fun scrivi(d: DataOutputStream, s: String) {
-        val b = s.toByteArray(Charsets.UTF_8)
-        d.writeInt(b.size)
-        d.write(b)
+    fun firma(tratti: File, oggetti: File, pagina: Any): String? {
+        if (!tratti.isFile) return null
+        val o = if (oggetti.isFile) "${oggetti.lastModified()}:${oggetti.length()}" else "-"
+        return "${BlocchiPagina.VERSIONE}|${tratti.lastModified()}:${tratti.length()}|$o|$pagina"
     }
 
-    private fun esadecimale(b: ByteArray) = b.joinToString("") { "%02x".format(it) }
+    fun sha256(b: ByteArray): String = MessageDigest.getInstance("SHA-256").digest(b).joinToString("") { "%02x".format(it) }
 }

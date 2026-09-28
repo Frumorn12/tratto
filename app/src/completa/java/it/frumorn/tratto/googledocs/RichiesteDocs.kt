@@ -13,98 +13,91 @@ import org.json.JSONObject
  * puo' cancellare.
  */
 
-/** Stile dei paragrafi scritti da Tratto: stile Google con nome e allineamento. */
-internal enum class StileParagrafo(val nome: String, val allineamento: String) {
-    TITOLO("TITLE", "START"),
-    TESTO("NORMAL_TEXT", "START"),
-    IMMAGINE("NORMAL_TEXT", "CENTER"),
-}
-
-/** Chiave di un paragrafo di testo: conta anche lo stile, cosi' il titolo non si confonde con un testo uguale. */
-internal fun chiaveTesto(stile: String, testo: String) = "T\u0000$stile\u0000$testo"
-
-/** Chiave di un'immagine di pagina: se cambia la dimensione della pagina l'immagine va rifatta, non sostituita. */
-internal fun chiaveImmagine(pagina: String, dimensione: String) = "I\u0000$pagina\u0000$dimensione"
-
-/** Stile e allineamento di un paragrafo, per confrontarli con quelli voluti. */
-internal fun aspetto(stile: String, allineamento: String) = "$stile/$allineamento"
-
-internal val StileParagrafo.aspetto: String get() = aspetto(nome, allineamento)
-
 /**
- * Un elemento del corpo del documento com'e' adesso, da [inizio] a [fine] esclusa. [chiave] dice cosa
- * contiene; gli elementi che Tratto non riconosce hanno una chiave unica e non restano mai.
- * [oggetto] e' l'id dell'immagine per i paragrafi che ne contengono solo una; [aspetto] lo stile
- * del paragrafo (vedi [aspetto]).
+ * Un elemento del corpo del documento, da [inizio] a [fine] esclusa: un paragrafo, oppure qualcosa
+ * che Tratto non tocca mai (tabella, sommario...). [testo] e' il testo del paragrafo senza l'a capo
+ * finale e senza le immagini; [oggetti] le immagini, con il loro indice; [altro] dice se ci sono
+ * elementi che non sono ne' testo ne' immagini. [stile] e' il paragraphStyle letto.
  */
-internal data class ParagrafoDoc(
+internal data class ElementoDoc(
     val inizio: Int,
     val fine: Int,
-    val chiave: String,
-    val oggetto: String? = null,
-    val aspetto: String? = null,
-)
+    val paragrafo: Boolean,
+    val testo: String = "",
+    val oggetti: List<Pair<String, Int>> = emptyList(),
+    val altro: Boolean = false,
+    val stile: JSONObject? = null,
+) {
+    /** L'id dell'immagine, se il paragrafo contiene solo quella. */
+    val soloImmagine: String?
+        get() = if (paragrafo && !altro && testo.isEmpty() && oggetti.size == 1) oggetti[0].first else null
+}
 
-/** Lettura della risposta di documents.get. */
-internal object LetturaDoc {
-    /** Campi da chiedere: solo quelli che servono a riconoscere i paragrafi. */
-    const val CAMPI = "revisionId,title,body(content(startIndex,endIndex," +
-        "paragraph(paragraphStyle(namedStyleType,alignment),elements(textRun(content),inlineObjectElement(inlineObjectId)))))"
+/** Un intervallo con nome del documento (namedRange): id, nome e l'estensione di tutte le sue parti. */
+internal data class IntervalloDoc(val id: String, val nome: String, val inizio: Int, val fine: Int)
 
-    /**
-     * I paragrafi del corpo, in ordine. [immagini] da' la chiave di ogni immagine messa da Tratto
-     * (id dell'oggetto -> [chiaveImmagine]); le altre immagini non si riconoscono.
-     */
-    fun paragrafi(doc: JSONObject, immagini: Map<String, String>): List<ParagrafoDoc> {
-        val out = ArrayList<ParagrafoDoc>()
-        for (e in elementi(doc)) {
-            val inizio = e.optInt("startIndex", 0)
-            val fine = e.optInt("endIndex", 0)
-            // L'interruzione di sezione iniziale (senza startIndex) non fa parte del testo.
-            if (fine <= inizio || (inizio == 0 && !e.has("paragraph"))) continue
-            val sconosciuto = "X\u0000$inizio"
-            val p = e.optJSONObject("paragraph")
-            if (p == null) {
-                out += ParagrafoDoc(inizio, fine, sconosciuto) // tabella, indice, interruzione di sezione
-                continue
+/** La risposta di documents.get, letta. */
+internal class DocLetto(val revisione: String?, val titolo: String, val elementi: List<ElementoDoc>, val intervalli: List<IntervalloDoc>) {
+    /** endIndex dell'ultimo paragrafo: il corpo finisce con l'a capo in [fine] - 1. */
+    val fine: Int get() = elementi.lastOrNull()?.fine ?: 2
+
+    companion object {
+        /** Campi da chiedere a documents.get: solo quelli che servono. */
+        const val CAMPI = "revisionId,title,namedRanges,body(content(startIndex,endIndex," +
+            "paragraph(paragraphStyle(namedStyleType,alignment,indentStart,indentFirstLine,spaceAbove)," +
+            "elements(startIndex,textRun(content),inlineObjectElement(inlineObjectId)))))"
+
+        fun da(doc: JSONObject): DocLetto {
+            val elementi = ArrayList<ElementoDoc>()
+            val a = doc.optJSONObject("body")?.optJSONArray("content") ?: JSONArray()
+            for (k in 0 until a.length()) {
+                val e = a.optJSONObject(k) ?: continue
+                val inizio = e.optInt("startIndex", 0)
+                val fine = e.optInt("endIndex", 0)
+                // L'interruzione di sezione iniziale (senza startIndex) non fa parte del testo.
+                if (fine <= inizio || (inizio == 0 && !e.has("paragraph"))) continue
+                val p = e.optJSONObject("paragraph")
+                if (p == null) {
+                    elementi += ElementoDoc(inizio, fine, paragrafo = false) // tabella, sommario, interruzione di sezione
+                    continue
+                }
+                val testo = StringBuilder()
+                val oggetti = ArrayList<Pair<String, Int>>()
+                var altro = false
+                val el = p.optJSONArray("elements") ?: JSONArray()
+                for (i in 0 until el.length()) {
+                    val x = el.optJSONObject(i) ?: continue
+                    val run = x.optJSONObject("textRun")
+                    val img = x.optJSONObject("inlineObjectElement")
+                    when {
+                        run != null -> testo.append(run.optString("content"))
+                        img != null -> oggetti += img.optString("inlineObjectId") to x.optInt("startIndex", inizio)
+                        else -> altro = true // interruzione di pagina, persona, equazione...
+                    }
+                }
+                if (testo.endsWith("\n")) testo.setLength(testo.length - 1)
+                elementi += ElementoDoc(inizio, fine, true, testo.toString(), oggetti, altro, p.optJSONObject("paragraphStyle"))
             }
-            val testo = StringBuilder()
-            val oggetti = ArrayList<String>()
-            var altro = false
-            val el = p.optJSONArray("elements") ?: JSONArray()
-            for (i in 0 until el.length()) {
-                val x = el.optJSONObject(i) ?: continue
-                val run = x.optJSONObject("textRun")
-                val img = x.optJSONObject("inlineObjectElement")
-                when {
-                    run != null -> testo.append(run.optString("content"))
-                    img != null -> oggetti += img.optString("inlineObjectId")
-                    else -> altro = true // interruzione di pagina, persona, equazione...
+            val intervalli = ArrayList<IntervalloDoc>()
+            val nr = doc.optJSONObject("namedRanges")
+            nr?.keys()?.forEach { nome ->
+                val gruppo = nr.optJSONObject(nome)?.optJSONArray("namedRanges") ?: return@forEach
+                for (i in 0 until gruppo.length()) {
+                    val r = gruppo.optJSONObject(i) ?: continue
+                    val parti = r.optJSONArray("ranges") ?: continue
+                    var s = Int.MAX_VALUE
+                    var f = Int.MIN_VALUE
+                    for (j in 0 until parti.length()) {
+                        val x = parti.optJSONObject(j) ?: continue
+                        if (x.has("segmentId") && x.optString("segmentId").isNotEmpty()) continue // intestazioni, note
+                        s = minOf(s, x.optInt("startIndex", 0))
+                        f = maxOf(f, x.optInt("endIndex", 0))
+                    }
+                    intervalli += IntervalloDoc(r.optString("namedRangeId"), r.optString("name", nome), s, f)
                 }
             }
-            if (testo.endsWith("\n")) testo.setLength(testo.length - 1)
-            // Senza valore vale quello predefinito: Google non ripete le proprieta' ereditate.
-            val ps = p.optJSONObject("paragraphStyle")
-            val stile = ps?.optString("namedStyleType")?.takeIf { it.isNotEmpty() } ?: "NORMAL_TEXT"
-            val aspetto = aspetto(stile, ps?.optString("alignment")?.takeIf { it.isNotEmpty() } ?: "START")
-            out += when {
-                altro -> ParagrafoDoc(inizio, fine, sconosciuto)
-                oggetti.isEmpty() -> ParagrafoDoc(inizio, fine, chiaveTesto(stile, testo.toString()), aspetto = aspetto)
-                oggetti.size == 1 && testo.isEmpty() ->
-                    ParagrafoDoc(inizio, fine, immagini[oggetti[0]] ?: sconosciuto, oggetti[0], aspetto)
-                else -> ParagrafoDoc(inizio, fine, sconosciuto)
-            }
+            return DocLetto(doc.optString("revisionId").takeIf { it.isNotEmpty() }, doc.optString("title"), elementi, intervalli)
         }
-        return out
-    }
-
-    /** Gli id delle immagini che stanno da sole in un paragrafo, nell'ordine del documento. */
-    fun immagini(doc: JSONObject): List<String> =
-        paragrafi(doc, emptyMap()).mapNotNull { it.oggetto }
-
-    private fun elementi(doc: JSONObject): List<JSONObject> {
-        val a = doc.optJSONObject("body")?.optJSONArray("content") ?: return emptyList()
-        return (0 until a.length()).mapNotNull { a.optJSONObject(it) }
     }
 }
 
@@ -126,22 +119,33 @@ internal object RichiesteDocs {
                 .put("objectSize", JSONObject().put("width", misura(larghezzaPt)).put("height", misura(altezzaPt))),
         )
 
-    /** Sostituisce l'immagine tenendo le sue dimensioni nel documento: niente spostamenti per chi guarda. */
-    fun sostituisciImmagine(oggetto: String, uri: String): JSONObject =
-        JSONObject().put(
-            "replaceImage",
-            JSONObject().put("imageObjectId", oggetto).put("uri", uri).put("imageReplaceMethod", "CENTER_CROP"),
-        )
+    /** Intervallo con nome: Google lo tiene attaccato al testo mentre il documento cambia. La risposta ne da' l'id. */
+    fun creaIntervallo(nome: String, inizio: Int, fine: Int): JSONObject =
+        JSONObject().put("createNamedRange", JSONObject().put("name", nome).put("range", intervallo(inizio, fine)))
 
-    /** Stile dei paragrafi che toccano [inizio, fine). */
-    fun stile(inizio: Int, fine: Int, stile: StileParagrafo): JSONObject =
+    fun togliIntervallo(id: String): JSONObject =
+        JSONObject().put("deleteNamedRange", JSONObject().put("namedRangeId", id))
+
+    /**
+     * Stile dei paragrafi che toccano [inizio, fine). I campi in [campi] senza valore in [stile]
+     * tornano a quelli dello stile con nome del paragrafo.
+     */
+    fun stileParagrafo(inizio: Int, fine: Int, stile: JSONObject, campi: String): JSONObject =
         JSONObject().put(
             "updateParagraphStyle",
-            JSONObject()
-                .put("range", intervallo(inizio, fine))
-                .put("paragraphStyle", JSONObject().put("namedStyleType", stile.nome).put("alignment", stile.allineamento))
-                .put("fields", "namedStyleType,alignment"),
+            JSONObject().put("range", intervallo(inizio, fine)).put("paragraphStyle", stile).put("fields", campi),
         )
+
+    /** Formato del testo in [inizio, fine): come [stileParagrafo], i campi senza valore tornano a quelli ereditati. */
+    fun stileTesto(inizio: Int, fine: Int, stile: JSONObject, campi: String): JSONObject =
+        JSONObject().put(
+            "updateTextStyle",
+            JSONObject().put("range", intervallo(inizio, fine)).put("textStyle", stile).put("fields", campi),
+        )
+
+    /** Elenco puntato o numerato sui paragrafi di [inizio, fine); i tab all'inizio dei paragrafi danno il livello e spariscono. */
+    fun elenco(inizio: Int, fine: Int, modello: String): JSONObject =
+        JSONObject().put("createParagraphBullets", JSONObject().put("range", intervallo(inizio, fine)).put("bulletPreset", modello))
 
     /** Pagina A4 verticale, come le pagine di Tratto. */
     fun paginaA4(): JSONObject =
@@ -162,9 +166,22 @@ internal object RichiesteDocs {
         return c
     }
 
+    fun misura(pt: Double): JSONObject = JSONObject().put("magnitude", pt).put("unit", "PT")
+
+    /** Colore ARGB di Android come rgbColor di Google (l'alfa si perde). */
+    fun colore(argb: Int): JSONObject = JSONObject().put(
+        "color",
+        JSONObject().put(
+            "rgbColor",
+            JSONObject()
+                .put("red", ((argb shr 16) and 0xFF) / 255.0)
+                .put("green", ((argb shr 8) and 0xFF) / 255.0)
+                .put("blue", (argb and 0xFF) / 255.0),
+        ),
+    )
+
     private fun posizione(indice: Int) = JSONObject().put("index", indice)
     private fun intervallo(inizio: Int, fine: Int) = JSONObject().put("startIndex", inizio).put("endIndex", fine)
-    private fun misura(pt: Double) = JSONObject().put("magnitude", pt).put("unit", "PT")
 
     const val A4_LARGHEZZA_PT = 595.28
     const val A4_ALTEZZA_PT = 841.89

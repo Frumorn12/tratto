@@ -65,7 +65,7 @@ Lasso a sentence to **transcribe** it into text you can copy or share. Or make a
 ### ☁️ Backup
 - **`.tratto` file**: all your notes in one file you can store anywhere, restored by merging or replacing.
 - **Google Drive**: automatic backups (optionally only on Wi‑Fi or while charging) into a folder only Tratto can see. The app asks for the `drive.file` scope, so it cannot read anything else in your Drive. Details in [docs/backup.md](docs/backup.md).
-- **Google Docs, live** (preview): link a note and a Google Doc follows it a few seconds after every change, so people can read it on a PC while you write. Details in [docs/google-docs.md](docs/google-docs.md).
+- **Google Docs, live**: link a note and a Google Doc follows it a second after you pause, so people can read it on a PC while you write. Every handwritten line, formula and drawing is its own transparent image, cropped to the ink, and text boxes become real, formatted text. Tratto only touches its own blocks: whatever you type or paste in Google Docs stays where you put it. Details in [docs/google-docs.md](docs/google-docs.md).
 
 <p align="center">
   <img src="docs/immagini/vetrina-2.png" alt="Pen panel, transcription and dark theme" width="100%">
