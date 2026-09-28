@@ -62,7 +62,13 @@ internal class ErroreAccesso(messaggio: String, causa: Throwable?, val temporane
  *
  * Nel codice non c'e' nessun client ID: Google riconosce l'app da package e SHA-1 (vedi docs/backup.md).
  */
-class DriveBackup(context: Context) {
+class DriveBackup(
+    context: Context,
+    /** Anche il permesso sui documenti Google (collegamento a Google Docs): il backup non ne ha bisogno. */
+    private val conDocumenti: Boolean = false,
+) {
+    private val scopes get() = if (conDocumenti) listOf(Scope(SCOPE_DRIVE_FILE), Scope(SCOPE_DOCUMENTI)) else listOf(Scope(SCOPE_DRIVE_FILE))
+
     private val app = context.applicationContext
     private val client by lazy { Identity.getAuthorizationClient(app) }
     private val fileStato get() = File(app.filesDir, "backup/drive.json")
@@ -106,7 +112,7 @@ class DriveBackup(context: Context) {
             try {
                 val richiesta = RevokeAccessRequest.builder()
                     .setAccount(Account(account, TIPO_ACCOUNT))
-                    .setScopes(listOf(Scope(SCOPE_DRIVE_FILE)))
+                    .setScopes(listOf(Scope(SCOPE_DRIVE_FILE), Scope(SCOPE_DOCUMENTI)))
                     .build()
                 client.revokeAccess(richiesta).attendi()
             } catch (e: Exception) {
@@ -126,6 +132,9 @@ class DriveBackup(context: Context) {
         if (SCOPE_DRIVE_FILE !in r.grantedScopes) {
             throw ErroreAccesso("Per il backup serve il permesso di vedere e gestire i file creati da Tratto su Google Drive.", null, false)
         }
+        if (conDocumenti && SCOPE_DOCUMENTI !in r.grantedScopes) {
+            throw ErroreAccesso("Per Google Docs serve il permesso di vedere e modificare i documenti.", null, false)
+        }
         // L'email serve solo da mostrare: se non arriva la si prende al primo backup.
         val email = try {
             DriveRest(token) { tokenSilenzioso() }.email()
@@ -142,7 +151,7 @@ class DriveBackup(context: Context) {
 
     private suspend fun richiedi(): AuthorizationResult {
         val richiesta = withContext(Dispatchers.IO) {
-            val b = AuthorizationRequest.builder().setRequestedScopes(listOf(Scope(SCOPE_DRIVE_FILE)))
+            val b = AuthorizationRequest.builder().setRequestedScopes(scopes)
             ImpostazioniBackup.stato(app).value.account?.let { b.setAccount(Account(it, TIPO_ACCOUNT)) }
             b.build()
         }
@@ -431,6 +440,9 @@ class DriveBackup(context: Context) {
 
     companion object {
         const val SCOPE_DRIVE_FILE = "https://www.googleapis.com/auth/drive.file"
+
+        /** Leggere e modificare i documenti Google: serve allo script che mette i disegni davanti al testo. */
+        const val SCOPE_DOCUMENTI = "https://www.googleapis.com/auth/documents"
         private const val TIPO_ACCOUNT = "com.google"
         private const val NOME_CARTELLA = "Tratto"
         private const val NOME_INDICE = "indice.tratto-indice"

@@ -2,6 +2,7 @@ package it.frumorn.tratto.editor
 
 import android.graphics.Canvas
 import android.graphics.Paint
+import android.graphics.RectF
 import android.graphics.Typeface
 import android.graphics.text.LineBreaker
 import android.text.Layout
@@ -252,6 +253,17 @@ object Impaginazione {
 /** Una casella impaginata: uno o piu' layout uno sotto l'altro. */
 class Impaginato(val parti: List<Pair<StaticLayout, Float>>, altezza: Float) {
     val altezza: Float = max(altezza, Impaginazione.ALTEZZA_MIN)
+
+    /** Il rettangolo occupato davvero dal testo (righe corte = rettangolo stretto), con l'origine nell'angolo della casella. */
+    fun ingombro(): RectF {
+        val r = RectF()
+        for ((l, y) in parti) for (k in 0 until l.lineCount) {
+            val riga = RectF(l.getLineLeft(k), y + l.getLineTop(k), l.getLineRight(k), y + l.getLineBottom(k))
+            if (riga.width() <= 0f) continue
+            if (r.isEmpty) r.set(riga) else r.union(riga)
+        }
+        return r
+    }
 
     /** Disegna con l'angolo in alto a sinistra della casella nell'origine del canvas. */
     fun disegna(c: Canvas) {

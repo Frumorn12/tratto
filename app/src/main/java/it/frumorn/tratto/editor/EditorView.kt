@@ -538,10 +538,12 @@ class EditorView(context: Context) : FrameLayout(context), InProgressStrokesFini
                     if (box.isEmpty) box.set(s[0], s[1], s[2], s[3]) else box.union(s[0], s[1], s[2], s[3])
                 }
             }
-            // Un oggetto e' preso se il lazo ne circonda il centro.
+            // Un oggetto e' preso se il lazo ne circonda il centro; per una casella di testo il centro
+            // del testo che si vede (la casella e' spesso molto piu' larga delle sue righe).
             for (o in p.oggetti) {
                 val r = DisegnoOggetti.riquadro(o)
-                if (dentroPoligono(r.centerX(), r.centerY(), poli)) {
+                val c = if (o is Testo) Impaginazione.impaginato(o).ingombro().takeIf { !it.isEmpty }?.apply { offset(o.x, o.y) } ?: r else r
+                if (dentroPoligono(c.centerX(), c.centerY(), poli)) {
                     oggettiPresi += o.id
                     if (box.isEmpty) box.set(r) else box.union(r)
                 }
@@ -1021,7 +1023,19 @@ class EditorView(context: Context) : FrameLayout(context), InProgressStrokesFini
     // ---------------------------------------------------------------- caselle di testo
 
     /** La casella in modifica: pagina, oggetto di partenza (null se nuova) e posto. */
-    private class ModificaTesto(val pagina: PaginaViva, val originale: Testo?, val id: String, val x: Float, val y: Float, val larghezza: Float)
+    private class ModificaTesto(
+        val pagina: PaginaViva,
+        val originale: Testo?,
+        val id: String,
+        val x: Float,
+        val y: Float,
+        val larghezza: Float,
+        /** Un paragrafo del documento collegato (Google Docs), non una casella della nota. */
+        val documento: ModificaDocumento? = null,
+    )
+
+    /** Il documento collegato alla nota, se c'e': con lo strumento Testo si scrive nel suo testo. */
+    var documentoEsterno: DocumentoAperto? = null
 
     private var campo: CampoTesto? = null
     private var modificaTesto: ModificaTesto? = null
@@ -1064,6 +1078,7 @@ class EditorView(context: Context) : FrameLayout(context), InProgressStrokesFini
         if (tirato < 40f) {
             val sotto = oggettoSotto(x0, y0)
             if (sotto != null && sotto.second is Testo) { apriTesto(sotto.first, sotto.second as Testo, x0, y0); return }
+            if (apriDocumento(x0, y0)) return
             puntoPagina(x0, y0)?.let { (i, pt) -> nuovoTesto(i, pt.x, pt.y) }
         } else {
             val (i, pt) = puntoPagina(min(x0, x), y0) ?: return
@@ -1092,15 +1107,38 @@ class EditorView(context: Context) : FrameLayout(context), InProgressStrokesFini
         apri(i, t, t.id, t.x, t.y, t.larghezza, t.contenuto, tocco)
     }
 
-    private fun apri(i: Int, originale: Testo?, id: String, x: Float, y: Float, larghezza: Float, contenuto: TestoRicco, tocco: PointF?) {
+    /**
+     * Nella nota collegata a un documento, il tocco con lo strumento Testo (punto [x], [y] dello
+     * schermo) apre il paragrafo del documento che sta li' (o uno nuovo in fondo). Falso se non c'e'.
+     */
+    private fun apriDocumento(x: Float, y: Float): Boolean {
+        val livello = foglio.livello ?: return false
+        val esterno = documentoEsterno ?: return false
+        val (i, pt) = puntoPagina(x, y) ?: return false
+        val par = livello.paragrafo(i, pt.x, pt.y) ?: return false
+        chiudiTesto()
+        val m = esterno.modifica(par) ?: return false
+        apri(par.pagina, null, "documento", par.x, par.y, par.larghezza, par.contenuto, PointF(pt.x - par.x, pt.y - par.y), m)
+        foglio.rifaiCache()
+        return true
+    }
+
+    private fun apri(i: Int, originale: Testo?, id: String, x: Float, y: Float, larghezza: Float, contenuto: TestoRicco, tocco: PointF?, esterno: ModificaDocumento? = null) {
         chiudiTesto()
         chiudiSelezione()
         deselezionaOggetto()
         val d = documento ?: return
         val p = d.pagine.getOrNull(i) ?: return
-        modificaTesto = ModificaTesto(p, originale, id, x, y, larghezza)
+        modificaTesto = ModificaTesto(p, originale, id, x, y, larghezza, esterno)
         val c = CampoTesto(context)
         c.carica(contenuto)
+        if (esterno != null) {
+            c.addTextChangedListener(object : android.text.TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
+                override fun afterTextChanged(e: android.text.Editable?) = esterno.cambiato(c.modello())
+            })
+        }
         c.alCambioAltezza = { sopra.invalidate() }
         addView(c, indexOfChild(inchiostro), LayoutParams(larghezza.roundToInt().coerceAtLeast(1), LayoutParams.WRAP_CONTENT))
         campo = c
@@ -1133,7 +1171,10 @@ class EditorView(context: Context) : FrameLayout(context), InProgressStrokesFini
         foglio.spazioSotto = 0f
         val d = documento
         val p = m.pagina
-        if (d != null && d.pagine.any { it === p }) {
+        if (m.documento != null) {
+            // Il testo e' del documento: va li', non nella nota.
+            m.documento.fine(nuovo)
+        } else if (d != null && d.pagine.any { it === p }) {
             val orig = m.originale
             if (orig == null) {
                 if (!nuovo.vuoto) {
@@ -1401,6 +1442,7 @@ class EditorView(context: Context) : FrameLayout(context), InProgressStrokesFini
             when {
                 sotto != null && sotto.second is Testo -> apriTesto(sotto.first, sotto.second as Testo, x, y)
                 sotto != null -> selezionaOggetto(sotto.first, sotto.second.id)
+                apriDocumento(x, y) -> Unit
                 else -> puntoPagina(x, y)?.let { (i, pt) -> nuovoTesto(i, pt.x, pt.y) } ?: deselezionaOggetto()
             }
             return true

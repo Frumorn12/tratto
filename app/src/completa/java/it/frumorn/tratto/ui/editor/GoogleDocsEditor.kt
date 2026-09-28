@@ -157,7 +157,7 @@ fun rememberGoogleDocs(sessione: SessioneEditor): ControlloDocs {
     val scope = rememberCoroutineScope()
     val stati = remember(context) { GoogleDocs.stati(context) }.collectAsState()
     val controllo = remember(sessione) { ControlloDocs(context, sessione, scope, stati) }
-    val accesso = rememberAccessoDrive { controllo.esitoAccesso(it) }
+    val accesso = rememberAccessoDrive(conDocumenti = true) { controllo.esitoAccesso(it) }
     SideEffect { controllo.accesso = accesso }
     return controllo
 }

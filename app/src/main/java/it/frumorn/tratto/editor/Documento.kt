@@ -235,6 +235,29 @@ class Documento(private val archivio: Archivio, info: NotaInfo) {
         return nuova
     }
 
+    /**
+     * Pagine del documento collegato (Google Docs): almeno [quante], tutte alte [altezza]. Non entra
+     * nella cronologia: le pagine seguono il documento, non l'utente.
+     */
+    fun adattaPagine(quante: Int, altezza: Float): Boolean {
+        var cambiato = false
+        for (p in pagine) {
+            if (kotlin.math.abs(p.pagina.altezza - altezza) > 0.5f) {
+                p.pagina = p.pagina.copy(altezza = altezza)
+                cambiato = true
+            }
+        }
+        while (pagine.size < quante) {
+            pagine += PaginaViva(Pagina(Archivio.nuovoId(), Sfondo.BIANCO, altezza = altezza)).apply { caricata = true }
+            cambiato = true
+        }
+        if (cambiato) {
+            pagineSporche = true
+            alCambio?.invoke()
+        }
+        return cambiato
+    }
+
     fun eliminaPagina(indice: Int) {
         if (pagine.size <= 1) return
         val m = ModificaPagine(indice, pagine[indice], aggiunta = false)

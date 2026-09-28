@@ -1,0 +1,305 @@
+package it.frumorn.tratto.googledocs
+
+import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.os.SystemClock
+import android.util.Log
+import it.frumorn.tratto.backup.DriveBackup
+import it.frumorn.tratto.data.scriviAtomico
+import it.frumorn.tratto.data.TestoRicco
+import it.frumorn.tratto.editor.DocumentoAperto
+import it.frumorn.tratto.editor.ModificaDocumento
+import it.frumorn.tratto.editor.ParagrafoDocumento
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeoutOrNull
+import org.json.JSONArray
+import java.util.UUID
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import org.json.JSONObject
+import java.io.File
+import java.util.concurrent.ConcurrentHashMap
+
+/**
+ * Il documento Google di una nota aperta nell'editor, dal vivo. Finche' la nota e' aperta e l'app e'
+ * in primo piano chiede a Google la revisione del documento (una richiesta leggerissima): ogni
+ * secondo se il documento e' cambiato da poco (qualcuno ci sta scrivendo), ogni 3 secondi se e'
+ * fermo. Quando la revisione cambia scarica il documento, lo impagina ([PagineDoc]) e lo passa a
+ * [mostra], che lo disegna sotto l'inchiostro.
+ *
+ * L'ultima versione si tiene in files/google-docs/doc-<nota>.json: aprendo la nota si vede subito,
+ * anche senza rete. Le immagini del documento si scaricano quando servono e restano in memoria.
+ */
+internal class DocumentoVivo(
+    private val app: Context,
+    private val notaId: String,
+    private val scope: CoroutineScope,
+    /** L'id del documento collegato adesso, o null se la nota non e' collegata. */
+    private val documento: () -> String?,
+    /** Oggetti posizionati da non disegnare: i disegni di Tratto (l'inchiostro c'e' gia'). */
+    private val escludi: () -> Set<String>,
+    private val mostra: (PagineDoc) -> Unit,
+) : DocumentoAperto {
+    private val caratteri = CaratteriDoc(app)
+    private val bitmap = ConcurrentHashMap<String, Bitmap>()
+    private val scaricando = ConcurrentHashMap.newKeySet<String>()
+
+    @Volatile private var inPausa = false
+
+    /** Il paragrafo che si sta modificando da Tratto, se c'e'. */
+    @Volatile private var inModifica: SessioneTesto? = null
+
+    /** Per chiedere subito la revisione (dopo una modifica mandata) invece di aspettare il giro. */
+    private val sveglia = Channel<Unit>(Channel.CONFLATED)
+    private var lavoro: Job? = null
+    private var docs: DocsRest? = null
+    private var revisione: String? = null
+    private var mostrato: PagineDoc? = null
+    private var ultimoCambio = 0L
+
+    /** L'ultimo documento letto, gia' impaginato (null finche' non c'e'). */
+    val pagine: PagineDoc? get() = mostrato
+
+    fun avvia() {
+        lavoro = scope.launch(Dispatchers.IO) {
+            var errori = 0
+            var letto: String? = null
+            while (isActive) {
+                val id = documento()
+                if (id == null) {
+                    delay(ATTESA_FERMO_MS)
+                    continue
+                }
+                if (letto != id) {
+                    // Nota appena aperta o appena collegata: prima la copia salvata, se e' di questo documento.
+                    letto = id
+                    revisione = null
+                    leggiCache(id)?.let { pubblica(it) }
+                }
+                if (!inPausa) {
+                    try {
+                        val d = docs ?: DocsRest(DriveBackup(app, conDocumenti = true).rest()).also { docs = it }
+                        val rev = d.revisione(id)
+                        if (rev != revisione) {
+                            val json = d.completo(id)
+                            salvaCache(id, json)
+                            pubblica(json)
+                            ultimoCambio = SystemClock.elapsedRealtime()
+                        }
+                        errori = 0
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        errori++
+                        // Un token scaduto o l'accesso tolto: al giro dopo si riparte da capo.
+                        if (e is DriveBackup.AccessoNecessario) docs = null
+                        Log.w(TAG, "Documento non aggiornato ($errori)", e)
+                    }
+                }
+                withTimeoutOrNull(attesa(errori)) { sveglia.receive() }
+            }
+        }
+    }
+
+    /** Ogni secondo se il documento e' cambiato da poco, altrimenti ogni 3; dopo un errore sempre piu' piano. */
+    private fun attesa(errori: Int): Long = when {
+        errori > 0 -> minOf(ATTESA_FERMO_MS shl minOf(errori, 4), 60_000L)
+        SystemClock.elapsedRealtime() - ultimoCambio < ATTIVO_MS -> ATTESA_VIVO_MS
+        else -> ATTESA_FERMO_MS
+    }
+
+    private fun pubblica(json: JSONObject) {
+        val m = try {
+            ModelloDoc.da(json)
+        } catch (e: Exception) {
+            Log.w(TAG, "Documento non leggibile", e)
+            return
+        }
+        revisione = m.revisione
+        val p = PagineDoc(m, caratteri, escludi) { bitmap[it] }
+        // Il paragrafo in modifica lo mostra il campo di testo: quello del documento non si disegna.
+        inModifica?.let { s -> p.nascosti = s.paragrafi(json, m) }
+        mostrato = p
+        mostra(p)
+        scaricaImmagini(m, p)
+    }
+
+    /** Scarica le immagini che mancano; quando ce n'e' una nuova si ridisegna. */
+    private fun scaricaImmagini(m: ModelloDoc, p: PagineDoc) {
+        val esclusi = escludi()
+        val servono = m.immagini.mapValues { it.value.uri } + m.posizionati.filterKeys { it !in esclusi }.mapValues { it.value.uri }
+        for ((id, uri) in servono) {
+            if (uri == null || bitmap.containsKey(id) || !scaricando.add(id)) continue
+            scope.launch(Dispatchers.IO) {
+                try {
+                    val d = docs ?: return@launch
+                    val b = d.scarica(uri)
+                    BitmapFactory.decodeByteArray(b, 0, b.size)?.let { bitmap[id] = it }
+                    if (mostrato === p) mostra(p)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Log.w(TAG, "Immagine $id non scaricata", e)
+                } finally {
+                    scaricando.remove(id)
+                }
+            }
+        }
+    }
+
+    private fun fileCache() = File(app.filesDir, "google-docs/doc-$notaId.json")
+
+    private fun leggiCache(id: String): JSONObject? = try {
+        val f = fileCache()
+        if (!f.isFile) null else JSONObject(f.readText()).takeIf { it.optString("documentId") == id }
+    } catch (e: Exception) {
+        null
+    }
+
+    private fun salvaCache(id: String, json: JSONObject) {
+        runCatching { scriviAtomico(fileCache(), json.put("documentId", id).toString().toByteArray()) }
+    }
+
+    override fun modifica(p: ParagrafoDocumento): ModificaDocumento? {
+        val rif = p.rif as? PagineDoc.Rif ?: return null
+        val id = documento() ?: return null
+        inModifica?.let { return null }
+        val s = SessioneTesto(id, rif, p.contenuto.testoSemplice)
+        inModifica = s
+        mostrato?.let { m ->
+            m.nascosti = if (rif.indice >= 0) setOf(rif.indice) else emptySet()
+            mostra(m)
+        }
+        scope.launch(Dispatchers.IO) { s.avvia() }
+        return s
+    }
+
+    /**
+     * Un paragrafo del documento modificato da Tratto. Un intervallo con nome lo segue mentre altri
+     * scrivono; alla prima pausa (mezzo secondo) si rilegge il suo testo e si manda solo la parte
+     * diversa, con la revisione appena letta: Google unisce le modifiche arrivate nel frattempo.
+     */
+    private inner class SessioneTesto(private val id: String, private val rif: PagineDoc.Rif, testo: String) : ModificaDocumento {
+        private val nome = "$PREFISSO_TESTO${UUID.randomUUID()}"
+        private val pronta = CompletableDeferred<Boolean>()
+        private val mutex = Mutex()
+        @Volatile private var ultimo = testo
+        private var attesa: Job? = null
+
+        suspend fun avvia() {
+            try {
+                val d = docs ?: DocsRest(DriveBackup(app, conDocumenti = true).rest()).also { docs = it }
+                val m = rif.modello
+                val r = JSONArray()
+                if (rif.indice < 0) {
+                    // Un paragrafo nuovo in fondo: a capo prima dell'ultimo a capo del corpo.
+                    val fine = m.paragrafi.lastOrNull()?.fine ?: 2
+                    r.put(RichiesteDocs.inserisciTesto(fine - 1, "\n")).put(RichiesteDocs.creaIntervallo(nome, fine, fine + 1))
+                } else {
+                    val par = m.paragrafi[rif.indice]
+                    r.put(RichiesteDocs.creaIntervallo(nome, par.inizio, par.fine))
+                }
+                d.aggiornaSu(id, r, m.revisione)
+                pronta.complete(true)
+            } catch (e: Exception) {
+                Log.w(TAG, "Modifica del documento non partita", e)
+                pronta.complete(false)
+            }
+        }
+
+        override fun cambiato(t: TestoRicco) {
+            ultimo = t.testoSemplice
+            attesa?.cancel()
+            attesa = scope.launch(Dispatchers.IO) {
+                delay(ATTESA_TESTO_MS)
+                invia()
+            }
+        }
+
+        override fun fine(t: TestoRicco) {
+            ultimo = t.testoSemplice
+            attesa?.cancel()
+            scope.launch(Dispatchers.IO) {
+                invia()
+                chiudi()
+                if (inModifica === this@SessioneTesto) inModifica = null
+                // Il paragrafo torna a disegnarsi dal documento appena arriva la revisione nuova.
+                revisione = null
+                sveglia.trySend(Unit)
+            }
+        }
+
+        /** Manda al documento la differenza tra il suo testo di adesso e [ultimo]. */
+        private suspend fun invia() = mutex.withLock {
+            try {
+                if (!pronta.await()) return@withLock
+                val d = docs ?: return@withLock
+                val json = d.testo(id)
+                val pezzo = TestoCondiviso.leggi(json, nome) ?: return@withLock
+                val r = TestoCondiviso.richieste(pezzo.inizio, pezzo.testo, ultimo)
+                if (r.length() == 0) return@withLock
+                d.aggiornaSu(id, r, json.optString("revisionId"))
+                sveglia.trySend(Unit)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "Testo non mandato al documento", e)
+            }
+        }
+
+        private suspend fun chiudi() {
+            try {
+                val d = docs ?: return
+                val pezzo = TestoCondiviso.leggi(d.testo(id), nome) ?: return
+                d.aggiorna(id, JSONArray().put(RichiesteDocs.togliIntervallo(pezzo.id)))
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                Log.w(TAG, "Intervallo della modifica non tolto", e)
+            }
+        }
+
+        /** I paragrafi coperti dall'intervallo nel documento [json] (letto in [m]). */
+        fun paragrafi(json: JSONObject, m: ModelloDoc): Set<Int> {
+            val r = json.optJSONObject("namedRanges")?.optJSONObject(nome)?.optJSONArray("namedRanges")?.optJSONObject(0)
+                ?.optJSONArray("ranges")?.optJSONObject(0) ?: return if (rif.indice >= 0 && rif.modello === m) setOf(rif.indice) else emptySet()
+            val s = r.optInt("startIndex")
+            val e = r.optInt("endIndex")
+            return m.paragrafi.indices.filterTo(HashSet()) { m.paragrafi[it].inizio in s until e }
+        }
+    }
+
+    override fun pausa() {
+        inPausa = true
+    }
+
+    override fun riprendi() {
+        inPausa = false
+    }
+
+    override fun chiudi() {
+        lavoro?.cancel()
+        bitmap.clear()
+    }
+
+    private companion object {
+        const val TAG = "DocumentoVivo"
+        const val PREFISSO_TESTO = "tratto-testo-"
+
+        /** Pausa dopo cui il testo scritto va al documento. */
+        const val ATTESA_TESTO_MS = 500L
+        const val ATTESA_VIVO_MS = 1000L
+        const val ATTESA_FERMO_MS = 3000L
+
+        /** Per quanto, dopo un cambio, si continua a chiedere ogni secondo. */
+        const val ATTIVO_MS = 30_000L
+    }
+}

@@ -11,6 +11,13 @@ val firma = File(System.getProperty("user.home"), ".config/tratto/firma.properti
     .takeIf { it.isFile }
     ?.let { f -> Properties().apply { f.inputStream().use { load(it) } } }
 
+// Lo script di Google che mette i disegni davanti al testo nei documenti (docs/apps-script): e' di un
+// account, quindi il suo id sta fuori dal repository (~/.config/tratto/google.properties, scriptDocs=...).
+// Senza, i disegni restano solo su Tratto.
+val google = File(System.getProperty("user.home"), ".config/tratto/google.properties")
+    .takeIf { it.isFile }
+    ?.let { f -> Properties().apply { f.inputStream().use { load(it) } } }
+
 android {
     namespace = "it.frumorn.tratto"
     compileSdk = 37
@@ -41,7 +48,10 @@ android {
             if (firma != null) signingConfig = signingConfigs.getByName("release")
         }
     }
-    buildFeatures { compose = true }
+    buildFeatures {
+        compose = true
+        buildConfig = true
+    }
 
     // Due versioni con lo stesso applicationId. "completa" ha il riconoscimento della scrittura
     // (ML Kit) e il backup su Google Drive (Play services), librerie non libere. "libera" e' solo
@@ -53,6 +63,7 @@ android {
             dimension = "distribuzione"
             isDefault = true
             proguardFile("proguard-completa.pro")
+            buildConfigField("String", "SCRIPT_DOCS", "\"${google?.getProperty("scriptDocs").orEmpty()}\"")
         }
         create("libera") {
             dimension = "distribuzione"

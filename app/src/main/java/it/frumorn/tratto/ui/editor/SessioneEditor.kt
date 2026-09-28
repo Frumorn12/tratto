@@ -69,6 +69,8 @@ class SessioneEditor(private val stato: StatoApp, val id: String, context: Conte
         private set
 
     private var pdf: PdfSfondo? = null
+    /** Il documento Google collegato, disegnato sotto l'inchiostro e aggiornato dal vivo (solo versione completa). */
+    private var documentoEsterno: it.frumorn.tratto.editor.DocumentoAperto? = null
     private var salvataggio: Job? = null
     private var chiusa = false
 
@@ -141,6 +143,8 @@ class SessioneEditor(private val stato: StatoApp, val id: String, context: Conte
             doc.alCambio = { aggiornaStato() }
             documento = doc
             aggiornaStato()
+            documentoEsterno = GoogleDocs.apri(contesto, id, stato.scope) { l -> vista.post { mostraDocumento(l) } }
+            vista.documentoEsterno = documentoEsterno
             vista.post { vista.preriscalda() }
             // Le altre pagine in sottofondo, a partire da quelle vicine.
             withContext(Dispatchers.IO) {
@@ -150,6 +154,24 @@ class SessioneEditor(private val stato: StatoApp, val id: String, context: Conte
                 }
             }
         }
+    }
+
+    /** Il documento collegato e' (di nuovo) impaginato: le pagine della nota lo seguono. */
+    private fun mostraDocumento(l: it.frumorn.tratto.editor.LivelloDocumento) {
+        if (chiusa) return
+        val d = documento ?: return
+        vista.foglio.livello = l
+        if (d.adattaPagine(l.pagine, l.altezza)) {
+            vista.ridisegna()
+            vista.foglio.limita()
+            aggiornaStato()
+            programmaSalvataggio()
+        }
+    }
+
+    /** L'app torna in primo piano. */
+    fun riprendi() {
+        documentoEsterno?.riprendi()
     }
 
     private fun aggiornaStato() {
@@ -408,6 +430,7 @@ class SessioneEditor(private val stato: StatoApp, val id: String, context: Conte
         // La casella di testo aperta si salva con il resto.
         vista.chiudiTesto()
         chiusa = true
+        documentoEsterno?.chiudi()
         suggerimento.nascondi()
         salvataggio?.cancel()
         val d = documento
@@ -448,6 +471,7 @@ class SessioneEditor(private val stato: StatoApp, val id: String, context: Conte
 
     /** Salvataggio immediato quando l'app va in secondo piano (anche la casella di testo aperta). */
     fun salvaOra() {
+        documentoEsterno?.pausa()
         vista.chiudiTesto()
         salvataggio?.cancel()
         val d = documento ?: return

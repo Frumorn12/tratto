@@ -166,6 +166,13 @@ internal object RichiesteDocs {
         return c
     }
 
+    /** Corpo di batchUpdate con indici della revisione [base], da unire alle modifiche arrivate dopo (targetRevisionId). */
+    fun corpoUnito(richieste: JSONArray, base: String): JSONObject =
+        JSONObject().put("requests", richieste).put("writeControl", JSONObject().put("targetRevisionId", base))
+
+    fun togliPosizionato(id: String): JSONObject =
+        JSONObject().put("deletePositionedObject", JSONObject().put("objectId", id))
+
     fun misura(pt: Double): JSONObject = JSONObject().put("magnitude", pt).put("unit", "PT")
 
     /** Colore ARGB di Android come rgbColor di Google (l'alfa si perde). */

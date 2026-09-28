@@ -20,9 +20,9 @@ import java.io.IOException
  * [alTermine] riceve successo (l'account e' in [ImpostazioniBackup]) o l'errore, col messaggio da mostrare.
  */
 @Composable
-fun rememberAccessoDrive(alTermine: (Result<Unit>) -> Unit): () -> Unit {
+fun rememberAccessoDrive(conDocumenti: Boolean = false, alTermine: (Result<Unit>) -> Unit): () -> Unit {
     val context = LocalContext.current
-    val drive = remember(context) { DriveBackup(context) }
+    val drive = remember(context, conDocumenti) { DriveBackup(context, conDocumenti) }
     val scope = rememberCoroutineScope()
     val esito by rememberUpdatedState(alTermine)
 

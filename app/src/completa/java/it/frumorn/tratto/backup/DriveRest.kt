@@ -137,6 +137,17 @@ internal class DriveRest(private var token: String, private val rinnova: suspend
         }
     }
 
+    /** Scarica un indirizzo di Google (per esempio l'immagine di un documento) con il token dell'account. */
+    suspend fun scaricaIndirizzo(url: String): ByteArray = chiama(idempotente = true) { t ->
+        val c = apri(url, "GET", t)
+        try {
+            controlla(c)
+            c.inputStream.use { it.readBytes() }
+        } finally {
+            c.disconnect()
+        }
+    }
+
     suspend fun scarica(id: String, dest: File) = chiama(idempotente = true) { t ->
         val c = apri("$API/files/$id?alt=media", "GET", t)
         try {

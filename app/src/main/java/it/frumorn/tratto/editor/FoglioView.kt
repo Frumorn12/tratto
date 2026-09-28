@@ -35,6 +35,10 @@ class FoglioView(context: Context) : View(context) {
         set(v) { field = v; cache.clear(); requestLayout(); invalidate() }
     var pdf: PdfSfondo? = null
 
+    /** Il documento esterno collegato (Google Docs), disegnato sotto l'inchiostro al posto delle righe. */
+    var livello: LivelloDocumento? = null
+        set(v) { field = v; rifaiCache() }
+
     var scala = 1f
         private set
     var tx = 0f
@@ -286,9 +290,9 @@ class FoglioView(context: Context) : View(context) {
             val pdfPagina = p.pagina.pdfPagina
             val bmp: Bitmap? = if (pdfPagina >= 0) pdf?.immagine(pdfPagina, w.toInt()) else null
             if (bmp != null) canvas.drawBitmap(bmp, null, rett, pBitmap)
-            else disegnaSfondo(canvas, p.pagina.sfondo, sx, sy, p.pagina.altezza)
+            else if (livello == null) disegnaSfondo(canvas, p.pagina.sfondo, sx, sy, p.pagina.altezza)
 
-            if (p.caricata) disegnaTratti(canvas, p, sx, sy)
+            if (p.caricata) disegnaTratti(canvas, p, i, sx, sy)
             canvas.restoreToCount(s)
         }
         if (paginaFantasma && tirata > 0f) disegnaPaginaNuova(canvas, d)
@@ -357,9 +361,10 @@ class FoglioView(context: Context) : View(context) {
     }
 
     /** Oggetti e tratti della pagina: gli oggetti sotto, l'inchiostro sopra, tutto nello stesso RenderNode. */
-    private fun disegnaTratti(canvas: Canvas, p: PaginaViva, sx: Float, sy: Float) {
+    private fun disegnaTratti(canvas: Canvas, p: PaginaViva, indice: Int, sx: Float, sy: Float) {
         if (!canvas.isHardwareAccelerated) {
             m.setScale(scala, scala); m.postTranslate(sx, sy)
+            disegnaLivello(canvas, indice, m)
             disegnaOggettiSu(canvas, p, m)
             disegnaTrattiSu(canvas, p, m)
             return
@@ -374,6 +379,7 @@ class FoglioView(context: Context) : View(context) {
             c.nodo.setPosition(0, 0, w, h)
             val rc = c.nodo.beginRecording(w, h)
             m.setScale(scala, scala)
+            disegnaLivello(rc, indice, m)
             disegnaOggettiSu(rc, p, m)
             disegnaTrattiSu(rc, p, m)
             c.nodo.endRecording()
@@ -403,6 +409,16 @@ class FoglioView(context: Context) : View(context) {
                 }
             }
         }
+        canvas.restoreToCount(s)
+    }
+
+    /** Il testo del documento collegato sulla pagina [indice], sotto tutto il resto. */
+    private fun disegnaLivello(canvas: Canvas, indice: Int, t: Matrix) {
+        val l = livello ?: return
+        if (indice >= l.pagine) return
+        val s = canvas.save()
+        canvas.concat(t)
+        l.disegna(canvas, indice, t.mapRadius(1f))
         canvas.restoreToCount(s)
     }
 

@@ -1,11 +1,14 @@
 package it.frumorn.tratto.googledocs
 
 import android.content.Context
+import it.frumorn.tratto.BuildConfig
 import it.frumorn.tratto.TrattoApp
 import it.frumorn.tratto.backup.DriveBackup
 import it.frumorn.tratto.backup.ErroreDrive
 import it.frumorn.tratto.backup.temporaneo
 import it.frumorn.tratto.data.scriviAtomico
+import it.frumorn.tratto.editor.DocumentoAperto
+import it.frumorn.tratto.editor.LivelloDocumento
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -68,6 +71,12 @@ object GoogleDocs {
     const val DISPONIBILE = true
 
     /**
+     * La nota mostra il documento (testo di Google Docs sotto l'inchiostro) e ci mette i suoi disegni
+     * davanti al testo con lo script di Google ([SincroniaDisegni]), invece di copiarci i suoi blocchi.
+     */
+    private const val MODO_DOCUMENTO = true
+
+    /**
      * Attesa dopo l'ultima modifica (l'editor salva gia' un secondo dopo l'ultimo tratto): alla prima
      * pausa il documento si aggiorna. Si cambiano solo i blocchi toccati, quindi basta poco.
      */
@@ -89,6 +98,22 @@ object GoogleDocs {
 
     /** Alla prima sincronizzazione (e dopo un errore) si tolgono le immagini temporanee rimaste. */
     @Volatile private var avanziDaPulire = true
+
+    /**
+     * La nota [notaId] e' aperta nell'editor: se e' (o diventa) collegata, il suo documento si
+     * disegna sotto l'inchiostro e si aggiorna dal vivo (vedi [DocumentoVivo]). [mostra] riceve il
+     * documento impaginato, da un thread qualsiasi.
+     */
+    fun apri(context: Context, notaId: String, scope: CoroutineScope, mostra: (LivelloDocumento) -> Unit): DocumentoAperto {
+        val app = context.applicationContext
+        scope.launch(Dispatchers.IO) { carica(app) }
+        return DocumentoVivo(
+            app, notaId, scope,
+            documento = { collegamento(notaId)?.documento },
+            escludi = { collegamento(notaId)?.disegni?.mapTo(HashSet()) { it.oggetto }.orEmpty() },
+            mostra = mostra,
+        ).also { it.avvia() }
+    }
 
     /** Indirizzo del documento da aprire nel browser o nell'app di Google Docs. */
     fun indirizzo(documento: String) = "https://docs.google.com/document/d/$documento/edit"
@@ -210,16 +235,31 @@ object GoogleDocs {
             val cartelle = servizio.cartelle
             val archivio = TrattoApp.archivio(app)
             val nota = NotaArchivio(archivio, notaId)
-            val sincronia = SincroniaDocs(servizio, nota, File(app.cacheDir, "google-docs"))
-            try {
-                if (avanziDaPulire) {
-                    servizio.pulisciAvanzi()
-                    avanziDaPulire = false
-                }
-                val finale = sincronia.sincronizza(link) { salvaCollegamento(app, notaId, it, cartelle) }
+            if (MODO_DOCUMENTO) {
+                if (BuildConfig.SCRIPT_DOCS.isEmpty()) throw IOException("Manca lo script di Google Docs: i disegni restano su Tratto.")
+                val caratteri = CaratteriDoc(app)
+                val disegni = SincroniaDisegni(
+                    DocsRest(servizio.rest), ScriptDocs(servizio.rest, BuildConfig.SCRIPT_DOCS), nota,
+                    impagina = { m ->
+                        val p = PagineDoc(m, caratteri, { emptySet() }) { null }
+                        PostiParagrafi(p.posizioni.map { it.pagina }, p.posizioni.map { it.y }, p.u.toDouble(), m.margineSinistro)
+                    },
+                    cartella = File(app.cacheDir, "google-docs"),
+                )
+                val finale = disegni.sincronizza(link) { salvaCollegamento(app, notaId, it, cartelle) }
                 salvaCollegamento(app, notaId, finale, cartelle)
-            } finally {
-                if (sincronia.avanzi) avanziDaPulire = true
+            } else {
+                val sincronia = SincroniaDocs(servizio, nota, File(app.cacheDir, "google-docs"))
+                try {
+                    if (avanziDaPulire) {
+                        servizio.pulisciAvanzi()
+                        avanziDaPulire = false
+                    }
+                    val finale = sincronia.sincronizza(link) { salvaCollegamento(app, notaId, it, cartelle) }
+                    salvaCollegamento(app, notaId, finale, cartelle)
+                } finally {
+                    if (sincronia.avanzi) avanziDaPulire = true
+                }
             }
             val pulita = synchronized(lock) {
                 val p = (generazioni[notaId] ?: 0) == generazione
@@ -238,6 +278,7 @@ object GoogleDocs {
             imposta(notaId) { it.copy(fase = FaseDocs.ERRORE, messaggio = "Serve di nuovo l'accesso a Google: tocca per ricollegare.", serveAccesso = true) }
             throw e
         } catch (e: Exception) {
+            android.util.Log.w("GoogleDocs", "Aggiornamento di $notaId non riuscito", e)
             avanziDaPulire = true
             val fase = if (e.temporaneo()) FaseDocs.RIPROVA else FaseDocs.ERRORE
             imposta(notaId) { it.copy(fase = fase, messaggio = messaggio(e), serveAccesso = false) }
@@ -247,7 +288,7 @@ object GoogleDocs {
 
     /** Drive e Docs con il token dell'account collegato; lancia [DriveBackup.AccessoNecessario] se serve il consenso. */
     private suspend fun servizio(app: Context): ServizioGoogle {
-        val rest = DriveBackup(app).rest()
+        val rest = DriveBackup(app, conDocumenti = true).rest()
         val d = synchronized(lock) { dati!! }
         return ServizioGoogle(rest, CartelleDocs(rest, d.cartella, d.immagini))
     }

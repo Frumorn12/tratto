@@ -50,6 +50,8 @@ internal data class CollegamentoDocs(
     val blocchi: List<BloccoSalvato> = emptyList(),
     val firme: Map<String, String> = emptyMap(),
     val vecchio: Boolean = false,
+    /** I disegni di Tratto davanti al testo del documento. */
+    val disegni: List<DisegnoSalvato> = emptyList(),
 )
 
 /**
@@ -86,7 +88,9 @@ internal data class CollegamentiDocs(
                 }
                 blocchi.put(j)
             }
-            val c2 = JSONObject().put("documento", c.documento).put("blocchi", blocchi).put("firme", JSONObject(c.firme as Map<*, *>))
+            val disegni = JSONArray()
+            for (d in c.disegni) disegni.put(JSONObject().put("chiave", d.chiave).put("pagina", d.pagina).put("oggetto", d.oggetto).put("impronta", d.impronta))
+            val c2 = JSONObject().put("documento", c.documento).put("blocchi", blocchi).put("firme", JSONObject(c.firme as Map<*, *>)).put("disegni", disegni)
             if (c.vecchio) c2.put("vecchio", true)
             n.put(id, c2)
         }
@@ -117,7 +121,7 @@ internal data class CollegamentiDocs(
                     // Versione 1: il documento e' tutto di Tratto (titolo e una immagine per pagina).
                     CollegamentoDocs(documento, vecchio = true)
                 } else {
-                    CollegamentoDocs(documento, blocchi(c.optJSONArray("blocchi")), firme(c.optJSONObject("firme")), c.optBoolean("vecchio"))
+                    CollegamentoDocs(documento, blocchi(c.optJSONArray("blocchi")), firme(c.optJSONObject("firme")), c.optBoolean("vecchio"), disegni(c.optJSONArray("disegni")))
                 }
             }
             return CollegamentiDocs(note, j.stringa("cartella"), j.stringa("immagini"))
@@ -146,6 +150,16 @@ internal data class CollegamentiDocs(
                     larghezzaPt = b.optDouble("larghezza", 0.0),
                     altezzaPt = b.optDouble("altezza", 0.0),
                 )
+            }
+            return out
+        }
+
+        private fun disegni(a: JSONArray?): List<DisegnoSalvato> {
+            if (a == null) return emptyList()
+            val out = ArrayList<DisegnoSalvato>()
+            for (i in 0 until a.length()) {
+                val d = a.optJSONObject(i) ?: continue
+                out += DisegnoSalvato(d.stringa("chiave") ?: continue, d.optString("pagina"), d.stringa("oggetto") ?: continue, d.optString("impronta"))
             }
             return out
         }

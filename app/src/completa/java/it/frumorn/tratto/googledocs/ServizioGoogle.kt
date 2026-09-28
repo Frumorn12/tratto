@@ -15,11 +15,83 @@ internal class DocsRest(private val rest: DriveRest) {
     suspend fun documento(id: String): JSONObject =
         rest.richiesta("GET", "$API/documents/$id?fields=${URLEncoder.encode(DocLetto.CAMPI, "UTF-8")}")
 
+    /** Solo la revisione: costa poco, si chiede spesso per sapere se il documento e' cambiato. */
+    suspend fun revisione(id: String): String =
+        rest.richiesta("GET", "$API/documents/$id?fields=revisionId").optString("revisionId")
+
+    /**
+     * Un'immagine del documento (contentUri, vale una mezz'ora ed e' gia' legato all'account che ha
+     * letto il documento). Se Google la rifiuta senza token, si riprova col token.
+     */
+    suspend fun scarica(url: String): ByteArray = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        val c = java.net.URL(url).openConnection() as java.net.HttpURLConnection
+        c.connectTimeout = 15_000
+        c.readTimeout = 30_000
+        try {
+            if (c.responseCode == 200) return@withContext c.inputStream.use { it.readBytes() }
+        } finally {
+            c.disconnect()
+        }
+        rest.scaricaIndirizzo(url)
+    }
+
+    /** Revisione, intervalli con nome e testo del corpo: quanto basta per modificare un paragrafo. */
+    suspend fun testo(id: String): JSONObject = rest.richiesta(
+        "GET",
+        "$API/documents/$id?fields=" + java.net.URLEncoder.encode(
+            "revisionId,namedRanges,body(content(startIndex,endIndex,paragraph(elements(startIndex,textRun(content),inlineObjectElement(inlineObjectId))),table))",
+            "UTF-8",
+        ),
+    )
+
+    /** Il documento intero, per disegnarlo. */
+    suspend fun completo(id: String): JSONObject = rest.richiesta("GET", "$API/documents/$id")
+
     suspend fun aggiorna(id: String, richieste: JSONArray, revisione: String? = null): JSONObject =
         rest.richiesta("POST", "$API/documents/$id:batchUpdate", RichiesteDocs.corpo(richieste, revisione))
 
+    /**
+     * Come [aggiorna], ma gli indici sono quelli della revisione [base]: se nel frattempo qualcuno ha
+     * scritto nel documento, Google sposta le richieste sopra le sue modifiche invece di rifiutarle.
+     */
+    suspend fun aggiornaSu(id: String, richieste: JSONArray, base: String): JSONObject =
+        rest.richiesta("POST", "$API/documents/$id:batchUpdate", RichiesteDocs.corpoUnito(richieste, base))
+
     private companion object {
         const val API = "https://docs.googleapis.com/v1"
+    }
+}
+
+/**
+ * Lo script di Google che mette i disegni davanti al testo (docs/apps-script/Codice.gs), chiamato con
+ * l'API Apps Script. [id] e' quello del suo deployment "eseguibile API".
+ */
+internal class ScriptDocs(private val rest: DriveRest, private val id: String) {
+    /** Un disegno da mettere: nome dell'intervallo sul paragrafo, PNG, misure e posizione in punti. */
+    class Disegno(val ancora: String, val png: ByteArray, val larghezza: Double, val altezza: Double, val sinistra: Double, val alto: Double)
+
+    /** Gli id delle immagini messe, nello stesso ordine (null dove il paragrafo non c'era piu'). */
+    suspend fun aggiungiDisegni(documento: String, disegni: List<Disegno>): List<String?> {
+        val lista = JSONArray()
+        for (d in disegni) {
+            lista.put(
+                // Apps Script vuole larghezza e altezza in pixel (96 per pollice), la posizione in punti.
+                JSONObject().put("ancora", d.ancora).put("png", android.util.Base64.encodeToString(d.png, android.util.Base64.NO_WRAP))
+                    .put("larghezza", d.larghezza * PX_PER_PT).put("altezza", d.altezza * PX_PER_PT).put("sinistra", d.sinistra).put("alto", d.alto),
+            )
+        }
+        val corpo = JSONObject().put("function", "aggiungiDisegni").put("parameters", JSONArray().put(documento).put(lista)).put("devMode", false)
+        val r = rest.richiesta("POST", "https://script.googleapis.com/v1/scripts/$id:run", corpo, idempotente = false)
+        r.optJSONObject("error")?.let { e ->
+            val dettaglio = e.optJSONArray("details")?.optJSONObject(0)?.optString("errorMessage")
+            throw java.io.IOException("Lo script di Google Docs non e' andato: ${dettaglio ?: e.optString("message")}")
+        }
+        val ids = r.optJSONObject("response")?.optJSONArray("result") ?: JSONArray()
+        return (0 until disegni.size).map { k -> ids.optString(k).takeIf { !ids.isNull(k) && it.isNotEmpty() } }
+    }
+
+    private companion object {
+        const val PX_PER_PT = 4.0 / 3.0
     }
 }
 
@@ -72,7 +144,7 @@ internal class CartelleDocs(private val rest: DriveRest, tratto: String?, immagi
  * cartella ".immagini-docs" e lo condivide con "chiunque abbia il link"; dopo il batchUpdate (Google
  * ha gia' scaricato l'immagine e ne tiene una copia) [ritira] toglie la condivisione e cancella il file.
  */
-internal class ServizioGoogle(private val rest: DriveRest, val cartelle: CartelleDocs) : ServizioDocs {
+internal class ServizioGoogle(val rest: DriveRest, val cartelle: CartelleDocs) : ServizioDocs {
     private val docs = DocsRest(rest)
 
     override suspend fun documento(id: String): JSONObject = docs.documento(id)

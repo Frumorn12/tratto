@@ -1,6 +1,9 @@
 package it.frumorn.tratto.googledocs
 
 import android.content.Context
+import it.frumorn.tratto.editor.DocumentoAperto
+import it.frumorn.tratto.editor.LivelloDocumento
+import kotlinx.coroutines.CoroutineScope
 
 /**
  * Collegamento a Google Docs della versione libera: non c'e' (serve l'accesso all'account Google
@@ -15,4 +18,7 @@ object GoogleDocs {
     fun modificata(context: Context, notaId: String) = Unit
 
     fun finisciInBackground(context: Context, notaId: String, cambiata: Boolean) = Unit
+
+    /** Nessun documento da mostrare. */
+    fun apri(context: Context, notaId: String, scope: CoroutineScope, mostra: (LivelloDocumento) -> Unit): DocumentoAperto? = null
 }

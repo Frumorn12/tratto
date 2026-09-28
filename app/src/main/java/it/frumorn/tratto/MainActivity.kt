@@ -80,6 +80,11 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        sessione?.riprendi()
+    }
+
     override fun onPause() {
         super.onPause()
         luce.rilascia()
