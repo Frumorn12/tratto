@@ -122,7 +122,7 @@ internal class NotaArchivio(private val archivio: Archivio, override val id: Str
 }
 
 /**
- * Porta un documento Google allo stato di una nota: il titolo, poi ogni pagina divisa in blocchi
+ * Porta un documento Google allo stato di una nota: ogni pagina divisa in blocchi
  * ([BlocchiPagina]): le righe, le formule e i disegni come immagini trasparenti ritagliate, le
  * caselle di testo come testo vero. Si toccano solo i blocchi di Tratto (vedi [PianoBlocchi]):
  * quello che si aggiunge a mano nel documento resta.
@@ -172,7 +172,7 @@ internal class SincroniaDocs(
             var voluti: List<BloccoVoluto>
             var piano: PianoBlocchi
             while (true) {
-                voluti = voluti(info, pagine, firme, lette, link)
+                voluti = voluti(pagine, firme, lette, link)
                 piano = PianoBlocchi(d, link.blocchi, voluti, link.vecchio)
                 val daLeggere = (piano.senzaContenuto.map { it.pagina } + piano.daDisegnare.map { it.pagina })
                     .filterNotNull().filter { it !in lette }.toSet()
@@ -250,14 +250,13 @@ internal class SincroniaDocs(
 
     /** I blocchi voluti della nota: il titolo, poi le pagine (dai dati letti, o i blocchi salvati se la pagina non e' cambiata). */
     private suspend fun voluti(
-        info: NotaInfo,
         pagine: List<Pagina>,
         firme: Map<String, String?>,
         lette: MutableMap<String, PaginaLetta>,
         link: CollegamentoDocs,
     ): List<BloccoVoluto> {
+        // Il titolo della nota e' il nome del documento: nel testo non si ripete.
         val out = ArrayList<BloccoVoluto>()
-        out += ContenutoDocs.titolo(EsportaPdf.titolo(info))
         val salvatiPerPagina = link.blocchi.groupBy { it.pagina }
         for ((i, p) in pagine.withIndex()) {
             val letta = lette[p.id]

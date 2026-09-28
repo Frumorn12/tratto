@@ -242,8 +242,6 @@ class SincroniaDocsTest(private val allargaInizio: Boolean, private val allargaF
     private fun controlla() {
         val attesi = ArrayList<String>()
         val testi = LinkedHashMap<String, String>()
-        attesi += nota.titolo.ifBlank { "Nota senza titolo" }
-        testi[ContenutoDocs.CHIAVE_TITOLO] = attesi[0] + "\n"
         for (p in nota.pagine) {
             val l = nota.leggiSenzaContare(p)
             for (b in l.blocchi) {
@@ -257,9 +255,10 @@ class SincroniaDocsTest(private val allargaInizio: Boolean, private val allargaF
             }
         }
         val par = google.doc.paragrafi().toMutableList()
-        if (par.size > 1 && par.last().testo.isEmpty() && par.last().immagini.isEmpty()) par.removeAt(par.lastIndex)
+        if (par.isNotEmpty() && par.last().testo.isEmpty() && par.last().immagini.isEmpty()) par.removeAt(par.lastIndex)
         assertEquals(attesi, par.filter { !it.testo.startsWith("UTENTE") }.map { it.leggibile() })
-        assertEquals("TITLE", par.first { it.testo == attesi[0] }.stile)
+        // Il titolo della nota e' solo il nome del documento.
+        assertTrue(par.none { it.stile == "TITLE" })
 
         for ((k, t) in testi) assertEquals("intervallo di $k", t, google.doc.testoIntervallo(ContenutoDocs.nomeIntervallo(k)))
         assertEquals(testi.size, google.doc.intervalli.size)
@@ -291,6 +290,7 @@ class SincroniaDocsTest(private val allargaInizio: Boolean, private val allargaF
         assertEquals(3, google.pubblicazioni)
         assertEquals(1, google.aggiornamenti)
         assertEquals(listOf("Appunti"), google.nomi)
+        assertEquals("[figura]", google.doc.paragrafi().first().let { if (it.figura) "[figura]" else it.testo })
         // Ogni riga e' un'immagine trasparente della sua misura: la pagina larga 1000 occupa 440 punti.
         val img = google.richieste[0].let { a -> (0 until a.length()).map { a.getJSONObject(it) }.mapNotNull { it.optJSONObject("insertInlineImage") } }
         assertEquals(3, img.size)
@@ -310,13 +310,13 @@ class SincroniaDocsTest(private val allargaInizio: Boolean, private val allargaF
         nota.letture = 0
         sincronizza()
         assertEquals(4, google.pubblicazioni)
-        assertEquals(listOf("deleteNamedRange", "deleteNamedRange", "deleteContentRange", "insertInlineImage"), google.richieste.last().tipi().take(4))
+        assertEquals(listOf("deleteNamedRange", "deleteContentRange", "insertInlineImage"), google.richieste.last().tipi().take(3))
         // Le altre immagini restano le stesse (stessi id); la pagina b non si rilegge.
         val dopo = google.doc.immagini().map { it.id }
         assertNotEquals(oggetti[0], dopo[0])
         assertEquals(oggetti.drop(1), dopo.drop(1))
         assertEquals(1, nota.letture)
-        assertEquals(t.getValue("r1").id, link.blocchi[1].chiave.substringAfter("/t").toLong())
+        assertEquals(t.getValue("r1").id, link.blocchi[0].chiave.substringAfter("/t").toLong())
     }
 
     @Test
@@ -356,7 +356,7 @@ class SincroniaDocsTest(private val allargaInizio: Boolean, private val allargaF
         // Andrea scrive in Google Docs: dopo la prima riga, dopo la casella e in fondo.
         google.doc.aMano {
             val p = paragrafi()
-            inserisciTesto(p[1].fine, "UTENTE dopo la riga\n")
+            inserisciTesto(p[0].fine, "UTENTE dopo la riga\n")
             val c = paragrafi().first { it.testo == "Ciao a tutti" }
             inserisciTesto(c.fine - 1, " ")
             cancella(c.fine - 1, c.fine) // un ripensamento: il paragrafo resta uguale
@@ -371,7 +371,7 @@ class SincroniaDocsTest(private val allargaInizio: Boolean, private val allargaF
         sincronizza()
         val par = google.doc.paragrafi().map { if (it.figura) "[figura]" else it.testo }
         assertEquals(
-            listOf("Appunti", "[figura]", "[figura]", "UTENTE dopo la riga", "Ciao a tutti!", "UTENTE dopo la casella", "[figura]", "UTENTE in fondo"),
+            listOf("[figura]", "[figura]", "UTENTE dopo la riga", "Ciao a tutti!", "UTENTE dopo la casella", "[figura]", "UTENTE in fondo"),
             par,
         )
     }
@@ -468,7 +468,7 @@ class SincroniaDocsTest(private val allargaInizio: Boolean, private val allargaF
         nota.casella("a", "c1", 300f, testo("nota a margine"))
         sincronizza()
         // Una pagina di PDF resta un'immagine sola, con tutto sopra.
-        assertEquals(listOf("Appunti", "[a/pdf:pagina intera 1]"), google.doc.paragrafi().dropLast(1).map { it.leggibile() })
+        assertEquals(listOf("[a/pdf:pagina intera 1]"), google.doc.paragrafi().dropLast(1).map { it.leggibile() })
     }
 
     @Test
@@ -496,7 +496,7 @@ class SincroniaDocsTest(private val allargaInizio: Boolean, private val allargaF
         sincronizza()
         nota.pagine.clear()
         sincronizza()
-        assertEquals(listOf("Appunti"), google.doc.paragrafi().map { it.testo }.filter { it.isNotEmpty() })
+        assertEquals(emptyList<String>(), google.doc.paragrafi().map { it.leggibile() }.filter { it.isNotEmpty() })
     }
 
     @Test

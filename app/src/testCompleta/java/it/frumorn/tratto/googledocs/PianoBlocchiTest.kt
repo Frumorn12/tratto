@@ -8,6 +8,10 @@ import org.junit.Test
 /** Casi del piano che il documento finto non sa fare (tabelle). */
 class PianoBlocchiTest {
 
+    /** Un testo di Tratto di un paragrafo. */
+    private fun testo(chiave: String, t: String) =
+        BloccoVoluto.Scritto(chiave, "p", BloccoSalvato.impronta(t), Aspetto.NESSUNO, listOf(ParagrafoScritto(t)))
+
     private fun par(inizio: Int, fine: Int, testo: String = "", immagine: String? = null) = ElementoDoc(
         inizio, fine, true, testo, immagine?.let { listOf(it to inizio) }.orEmpty(), stile = JSONObject().put("namedStyleType", "NORMAL_TEXT"),
     )
@@ -20,7 +24,7 @@ class PianoBlocchiTest {
             listOf(par(1, 9, "Appunti"), par(9, 11, immagine = "kix.1"), ElementoDoc(11, 30, false), par(30, 31)),
             listOf(IntervalloDoc("kix.nr1", "tratto/titolo", 1, 9)),
         )
-        val titolo = ContenutoDocs.titolo("Appunti")
+        val titolo = testo("titolo", "Appunti")
         val salvati = listOf(
             BloccoSalvato("titolo", false, null, titolo.impronta, titolo.aspetto.codice, intervallo = "kix.nr1", paragrafi = listOf(BloccoSalvato.impronta("Appunti"))),
             BloccoSalvato("p/t1", true, "p", "i", "0,0", oggetto = "kix.1", png = "x", larghezzaPt = 10.0, altezzaPt = 10.0),
@@ -38,7 +42,7 @@ class PianoBlocchiTest {
     @Test
     fun documentoGiaGiustoNonSiTocca() {
         val doc = DocLetto("r1", "Appunti", listOf(par(1, 9, "Appunti"), par(9, 10)), listOf(IntervalloDoc("kix.nr1", "tratto/titolo", 1, 9)))
-        val titolo = ContenutoDocs.titolo("Appunti")
+        val titolo = testo("titolo", "Appunti")
         val salvati = listOf(BloccoSalvato("titolo", false, null, titolo.impronta, titolo.aspetto.codice, intervallo = "kix.nr1", paragrafi = listOf(BloccoSalvato.impronta("Appunti"))))
         assertTrue(PianoBlocchi(doc, salvati, listOf(titolo)).vuoto)
         // Un intervallo allargato (qualcuno ha scritto subito dopo) si rifa' esatto.

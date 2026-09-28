@@ -60,6 +60,31 @@ class BlocchiPaginaTest {
     }
 
     @Test
+    fun disegnoAccantoAlTesto() {
+        // Come nella nota di Andrea: righe a sinistra, uno scarabocchio alto tre righe a destra.
+        val ciao = tratto(120f, 250f, 240f, 320f)
+        val disegno = listOf(tratto(330f, 240f, 640f, 515f), tratto(590f, 330f, 730f, 515f), tratto(700f, 420f, 815f, 825f))
+        val come = tratto(170f, 460f, 285f, 520f)
+        val stai = tratto(175f, 690f, 330f, 810f)
+        val tranquillo = tratto(385f, 690f, 515f, 750f)
+        val bene = tratto(150f, 950f, 320f, 1070f)
+        val b = dividi(listOf(ciao, come, stai, tranquillo, bene) + disegno)
+        // Ogni scritta per conto suo, il disegno da solo; le parole della stessa riga insieme.
+        assertEquals(listOf("t${ciao.id}", "t${disegno[0].id}", "t${come.id}", "t${stai.id}", "t${bene.id}"), b.map { it.chiave })
+        assertEquals(listOf(stai.id, tranquillo.id), (b[3] as BloccoPagina.Disegno).tratti.map { it.id })
+        assertEquals(disegno.map { it.id }, (b[1] as BloccoPagina.Disegno).tratti.map { it.id })
+    }
+
+    @Test
+    fun puntinoSoloVaNellaRiga() {
+        val parola = tratto(100f, 100f, 300f, 130f)
+        // Il puntino di una i un po' alto, lontano piu' della distanza dei gruppi.
+        val puntino = tratto(200f, 70f, 203f, 73f, spessore = 1f)
+        val b = dividi(listOf(parola, puntino))
+        assertEquals(1, b.size)
+    }
+
+    @Test
     fun caselleInOrdineConLeRighe() {
         val sopra = tratto(100f, 100f, 300f, 130f)
         val sotto = tratto(100f, 400f, 300f, 430f)

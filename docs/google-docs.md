@@ -51,20 +51,26 @@ Collegare una nota collega anche Google Drive nelle impostazioni (stesso account
 ## 3. Com'è fatto il documento
 
 ```
-Titolo della nota               testo, stile TITLE
 [riga 1]                        immagine trasparente, ritagliata
+[disegno]
 [riga 2]
 Testo di una casella            testo vero: stili, grassetto, colori, elenchi
-[disegno]
 ...                             (poi le pagine dopo, una dopo l'altra)
 ```
+
+Il titolo della nota è il nome del documento su Drive: nel testo non si ripete.
 
 ### Blocchi (`BlocchiPagina`)
 
 Ogni pagina si divide in blocchi, dall'alto in basso:
 
-- **Figure**. I tratti e le immagini incollate si raccolgono in fasce orizzontali: due elementi stanno nella stessa fascia se in verticale si sovrappongono o distano meno di 7 unità (circa 4 punti su un A4). Così una riga con i suoi accenti, i puntini e il segno di uguale è una fascia sola; due righe separate dall'interlinea sono due fasce; un disegno alto è una fascia sola. La fascia si disegna in un PNG trasparente ritagliato al suo ingombro, senza carta né righe (`EsportaPdf.immagineRitaglio`).
-- **Testi**. Ogni casella di testo è un blocco a sé, messo in ordine con le fasce secondo il suo bordo alto. Diventa testo vero: gli stili di paragrafo vanno sugli stili di Documenti (Titolo, Sottotitolo, Intestazione 1-3), e restano allineamento, elenchi puntati e numerati (con il livello), grassetto, corsivo, sottolineato, barrato, colore, evidenziatore, dimensione e carattere (Manrope, Noto Serif, Roboto Mono).
+- **Figure**. Ogni scritta e ogni disegno è un'immagine a sé, anche quando stanno uno accanto all'altro. Si procede in tre passi:
+  1. **Gruppi**. Tratti e immagini che si toccano o quasi stanno insieme, a catena: meno di 25 unità (circa 5 mm) di lato, 12 sopra o sotto. Le lettere di una parola, gli accenti, il segno di uguale e un esponente sono un gruppo; due parole lontane o due righe separate dall'interlinea no.
+  2. **Disegni**. Un gruppo con un'immagine incollata, o più alto di 150 unità e di tre volte l'altezza tipica dei gruppi della pagina, è un blocco da solo.
+  3. **Righe**. Gli altri gruppi allineati (che si sovrappongono in verticale per almeno metà del più basso) formano una riga. I puntini rimasti soli vanno nella riga più vicina.
+
+  I blocchi vanno dall'alto in basso; quelli che cominciano quasi alla stessa altezza (entro 20 unità) da sinistra a destra. Uno scarabocchio alto tre righe accanto al testo diventa un'immagine sola, e le tre righe restano tre immagini. Ogni blocco si disegna in un PNG trasparente ritagliato al suo ingombro, senza carta né righe e solo con i suoi tratti (`EsportaPdf.immagineRitaglio`).
+- **Testi**. Ogni casella di testo è un blocco a sé, messo in ordine con le figure secondo il suo bordo alto. Diventa testo vero: gli stili di paragrafo vanno sugli stili di Documenti (Titolo, Sottotitolo, Intestazione 1-3), e restano allineamento, elenchi puntati e numerati (con il livello), grassetto, corsivo, sottolineato, barrato, colore, evidenziatore, dimensione e carattere (Manrope, Noto Serif, Roboto Mono).
 - **Pagine di PDF**. Restano un'immagine intera, con il PDF sotto e tutto quello che c'è sopra.
 
 La **chiave** di una figura è il suo tratto più vecchio (gli id dei tratti crescono): aggiungere un tratto a una riga la ridisegna senza spostarla. La chiave di un testo è l'id della casella.
@@ -88,13 +94,12 @@ Il documento è condiviso: Tratto deve ritrovare i suoi blocchi in mezzo al rest
 - **Testo**: da un **intervallo con nome** (named range) `tratto/<chiave>` che copre i suoi paragrafi. Google lo tiene attaccato al testo mentre il documento cambia. L'intervallo deve cominciare all'inizio di un paragrafo. Sono di Tratto solo i paragrafi che aveva scritto (quanti erano), riconosciuti da un'impronta del loro testo.
   - La documentazione di Google non dice se un intervallo si allarga quando qualcuno scrive proprio sul suo bordo. Se si è allargato, i paragrafi di Tratto sono quelli che somigliano di più a quelli scritti.
   - Nei test il documento finto prova tutti e quattro i modi (inizio e fine che si allargano o no).
-- **Titolo**: è un testo come gli altri, con l'intervallo `tratto/titolo`.
 - **Blocco non ritrovato** (cancellato a mano): si rimette.
 
 **Cosa cambia**
 
 - I blocchi ritrovati nello stesso ordine della nota **restano dove sono** (sottosequenza comune più lunga). Gli altri si tolgono e si rimettono.
-- Un blocco nuovo va **subito dopo il blocco di Tratto che lo precede nella nota**, o in cima al documento. Il testo scritto a mano dopo una riga resta dopo quella riga, anche se sul tablet se ne aggiungono altre sotto.
+- Un blocco nuovo va **subito dopo il blocco di Tratto che lo precede nella nota**, o in cima al documento se è il primo. Il testo scritto a mano dopo una riga resta dopo quella riga, anche se sul tablet se ne aggiungono altre sotto.
 - Un testo di Tratto cambiato a mano in Google Docs resta com'è finché la casella non cambia sul tablet; allora vince il tablet.
 - Una figura cambiata si toglie e si rimette nello stesso punto, con la misura nuova. Un disegno rifatto identico (un tratto aggiunto e annullato) non si ricarica.
 
@@ -146,7 +151,7 @@ Con un account Google Workspace che vieta la condivisione fuori dall'organizzazi
  "note": {"<notaId>": {"documento": "<id del documento>",
    "firme": {"<paginaId>": "…"},
    "blocchi": [
-     {"chiave": "titolo", "figura": false, "impronta": "…", "aspetto": "0,0", "intervallo": "kix.…", "paragrafi": ["…"]},
+     {"chiave": "<paginaId>/x<casella>", "figura": false, "pagina": "…", "impronta": "…", "aspetto": "0,44", "intervallo": "kix.…", "paragrafi": ["…"]},
      {"chiave": "<paginaId>/t123", "figura": true, "pagina": "…", "impronta": "…", "aspetto": "6,44",
       "oggetto": "kix.…", "png": "…", "larghezza": 220.0, "altezza": 22.5}]}}}
 ```

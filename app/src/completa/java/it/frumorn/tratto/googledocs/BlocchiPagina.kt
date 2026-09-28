@@ -39,20 +39,48 @@ internal sealed interface BloccoPagina {
 }
 
 /**
- * Divide una pagina in blocchi, dall'alto in basso.
+ * Divide una pagina in blocchi, in ordine di lettura: ogni scritta e ogni disegno diventa un blocco a
+ * se', cosi' nel documento un disegno accanto al testo non si porta dietro le righe.
  *
- * Tratti e immagini si raccolgono in fasce orizzontali: due elementi stanno nella stessa fascia se in
- * verticale si sovrappongono o distano meno di [DISTANZA]. Una riga di scrittura (con accenti,
- * puntini e il segno di uguale) e' una fascia; due righe separate dall'interlinea sono due fasce; un
- * disegno alto e' una fascia sola. Le caselle di testo sono blocchi a parte, messi in ordine con le
- * fasce secondo il loro bordo alto.
+ * 1. Gruppi: tratti e immagini che si toccano o quasi (meno di [VICINO_X] di lato, [VICINO_Y] sopra o
+ *    sotto) stanno insieme. Le lettere di una parola, gli accenti, il segno di uguale, un esponente
+ *    sono un gruppo; due parole lontane o due righe separate dall'interlinea no.
+ * 2. Disegni: un gruppo con un'immagine, o molto piu' alto di una riga di scrittura (vedi
+ *    [ALTEZZA_DISEGNO]), e' un blocco da solo.
+ * 3. Righe: gli altri gruppi allineati in orizzontale (che si sovrappongono in verticale per almeno
+ *    [SOVRAPPOSIZIONE] del piu' basso) sono una riga. I puntini rimasti soli vanno nella riga vicina.
+ *
+ * Le caselle di testo sono blocchi a parte. L'ordine e' dall'alto in basso; blocchi che cominciano
+ * quasi alla stessa altezza (entro [STESSA_ALTEZZA]) vanno da sinistra a destra.
  */
 internal object BlocchiPagina {
-    /** Spazio vuoto in verticale che separa due fasce, in unita' di pagina (circa 4 punti su un A4). */
-    const val DISTANZA = 7f
+    /** Distanza sotto cui due tratti stanno nello stesso gruppo, in unita' di pagina (1 unita' ~ 0,2 mm). */
+    const val VICINO_X = 25f
+    const val VICINO_Y = 12f
+
+    /** Un gruppo piu' alto di cosi' (e di tre volte l'altezza tipica dei gruppi della pagina) e' un disegno. */
+    const val ALTEZZA_DISEGNO = 150f
+
+    /** Quanto due gruppi devono sovrapporsi in verticale per stare nella stessa riga (frazione del piu' basso). */
+    const val SOVRAPPOSIZIONE = 0.5f
+
+    /** Un gruppo piu' piccolo di cosi' in tutte e due le direzioni e' un puntino (accento, punto, virgola). */
+    const val PUNTINO = 18f
+
+    /** Distanza massima tra un puntino e la riga a cui si attacca. */
+    const val DISTANZA_PUNTINO = 40f
+
+    const val STESSA_ALTEZZA = 20f
 
     /** Da aumentare quando cambia il modo di dividere o di disegnare i blocchi: si rifanno tutti. */
-    const val VERSIONE = 1
+    const val VERSIONE = 2
+
+    private class Elemento(val r: Riquadro, val tratto: Tratto?, val immagine: Immagine?)
+
+    private class Gruppo(val elementi: List<Elemento>) {
+        val r = elementi.map { it.r }.reduce(Riquadro::unito)
+        val conImmagine = elementi.any { it.immagine != null }
+    }
 
     /**
      * I blocchi della pagina in ordine di lettura. [altezzaTesto] da' l'altezza di una casella di testo
@@ -61,38 +89,102 @@ internal object BlocchiPagina {
     fun dividi(pagina: Pagina, tratti: List<Tratto>, oggetti: List<Oggetto>, altezzaTesto: (Testo) -> Float): List<BloccoPagina> {
         if (pagina.pdfPagina >= 0) return listOf(BloccoPagina.Intera("pdf", Riquadro(0f, 0f, pagina.larghezza, pagina.altezza)))
 
-        class Elemento(val r: Riquadro, val tratto: Tratto?, val immagine: Immagine?)
-
         val elementi = ArrayList<Elemento>()
         for (t in tratti) riquadro(t)?.let { elementi += Elemento(it, t, null) }
         for (o in oggetti) if (o is Immagine) elementi += Elemento(Riquadro(o.x, o.y, o.x + o.larghezza, o.y + o.altezza), null, o)
-        elementi.sortBy { it.r.alto }
+
+        val gruppi = gruppi(elementi)
+        val altezze = gruppi.filter { !it.conImmagine }.map { it.r.altezza }.sorted()
+        val tipica = if (altezze.size >= 3) altezze[altezze.size / 2] else 0f
+        val soglia = maxOf(ALTEZZA_DISEGNO, 3 * tipica)
+        val (disegni, scritte) = gruppi.partition { it.conImmagine || it.r.altezza > soglia }
 
         val blocchi = ArrayList<BloccoPagina>()
-        var fascia = ArrayList<Elemento>()
-        var basso = Float.NEGATIVE_INFINITY
-        fun chiudi() {
-            if (fascia.isEmpty()) return
-            val r = fascia.map { it.r }.reduce(Riquadro::unito)
-            val tr = fascia.mapNotNull { it.tratto }.sortedBy { it.id }
-            val im = fascia.mapNotNull { it.immagine }
-            // La chiave e' il primo tratto della riga: i tratti aggiunti dopo hanno id piu' grandi.
-            val chiave = tr.firstOrNull()?.let { "t${it.id}" } ?: "i${im.minOf { it.id }}"
-            blocchi += BloccoPagina.Disegno(chiave, r, tr, im)
-            fascia = ArrayList()
-        }
-        for (e in elementi) {
-            if (e.r.alto > basso + DISTANZA) chiudi()
-            fascia += e
-            basso = maxOf(basso, e.r.basso)
-        }
-        chiudi()
-
+        for (g in disegni) blocchi += blocco(g.elementi, g.r)
+        for (riga in righe(scritte)) blocchi += blocco(riga.flatMap { it.elementi }, riga.map { it.r }.reduce(Riquadro::unito))
         for (o in oggetti) {
             if (o !is Testo || o.contenuto.vuoto) continue
             blocchi += BloccoPagina.Scritta("x${o.id}", Riquadro(o.x, o.y, o.x + o.larghezza, o.y + altezzaTesto(o)), o)
         }
-        return blocchi.sortedWith(compareBy({ it.riquadro.alto }, { it.riquadro.sinistra }))
+        return inOrdine(blocchi)
+    }
+
+    /** Tratti e immagini che si toccano o quasi, uniti a catena (union-find). */
+    private fun gruppi(e: List<Elemento>): List<Gruppo> {
+        val padre = IntArray(e.size) { it }
+        fun radice(i: Int): Int {
+            var x = i
+            while (padre[x] != x) {
+                padre[x] = padre[padre[x]]
+                x = padre[x]
+            }
+            return x
+        }
+        // In ordine di bordo sinistro: si confrontano solo gli elementi che possono toccarsi in orizzontale.
+        val ordine = e.indices.sortedBy { e[it].r.sinistra }
+        for ((a, i) in ordine.withIndex()) {
+            val ri = e[i].r
+            for (b in a + 1 until ordine.size) {
+                val j = ordine[b]
+                val rj = e[j].r
+                if (rj.sinistra > ri.destra + VICINO_X) break
+                if (rj.alto <= ri.basso + VICINO_Y && ri.alto <= rj.basso + VICINO_Y) padre[radice(i)] = radice(j)
+            }
+        }
+        return e.indices.groupBy { radice(it) }.values.map { ind -> Gruppo(ind.map { e[it] }) }
+    }
+
+    /** Gruppi allineati in orizzontale, dall'alto in basso; i puntini soli vanno nella riga piu' vicina. */
+    private fun righe(gruppi: List<Gruppo>): List<List<Gruppo>> {
+        val (puntini, veri) = gruppi.partition { it.r.larghezza < PUNTINO && it.r.altezza < PUNTINO }
+        class Riga(g: Gruppo) {
+            val gruppi = arrayListOf(g)
+            var r = g.r
+        }
+        val righe = ArrayList<Riga>()
+        for (g in veri.sortedBy { it.r.alto }) {
+            val riga = righe.firstOrNull { sovrapposizione(it.r, g.r) >= SOVRAPPOSIZIONE * minOf(it.r.altezza, g.r.altezza) }
+            if (riga == null) righe += Riga(g) else {
+                riga.gruppi += g
+                riga.r = riga.r.unito(g.r)
+            }
+        }
+        for (p in puntini) {
+            val vicina = righe.minByOrNull { distanza(it.r, p.r) }?.takeIf { distanza(it.r, p.r) <= DISTANZA_PUNTINO }
+            if (vicina == null) righe += Riga(p) else vicina.gruppi += p
+        }
+        return righe.map { it.gruppi }
+    }
+
+    private fun sovrapposizione(a: Riquadro, b: Riquadro) = minOf(a.basso, b.basso) - maxOf(a.alto, b.alto)
+
+    private fun distanza(a: Riquadro, b: Riquadro): Float {
+        val dx = maxOf(0f, maxOf(a.sinistra, b.sinistra) - minOf(a.destra, b.destra))
+        val dy = maxOf(0f, maxOf(a.alto, b.alto) - minOf(a.basso, b.basso))
+        return kotlin.math.hypot(dx, dy)
+    }
+
+    private fun blocco(el: List<Elemento>, r: Riquadro): BloccoPagina.Disegno {
+        val tr = el.mapNotNull { it.tratto }.sortedBy { it.id }
+        val im = el.mapNotNull { it.immagine }
+        // La chiave e' il tratto piu' vecchio: i tratti aggiunti dopo hanno id piu' grandi.
+        val chiave = tr.firstOrNull()?.let { "t${it.id}" } ?: "i${im.minOf { it.id }}"
+        return BloccoPagina.Disegno(chiave, r, tr, im)
+    }
+
+    /** Dall'alto in basso; quelli che cominciano quasi alla stessa altezza, da sinistra a destra. */
+    private fun inOrdine(blocchi: List<BloccoPagina>): List<BloccoPagina> {
+        val out = ArrayList<BloccoPagina>()
+        var fila = ArrayList<BloccoPagina>()
+        for (b in blocchi.sortedWith(compareBy({ it.riquadro.alto }, { it.riquadro.sinistra }))) {
+            if (fila.isNotEmpty() && b.riquadro.alto - fila[0].riquadro.alto > STESSA_ALTEZZA) {
+                out += fila.sortedBy { it.riquadro.sinistra }
+                fila = ArrayList()
+            }
+            fila += b
+        }
+        out += fila.sortedBy { it.riquadro.sinistra }
+        return out
     }
 
     /** L'ingombro di un tratto con il suo spessore (la pressione lo allarga fino a circa 1,35 volte), o null se non ha punti. */

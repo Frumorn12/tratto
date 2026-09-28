@@ -102,13 +102,6 @@ internal object ContenutoDocs {
     /** Le dimensioni del testo di Tratto sono pensate per un A4 intero: qui la pagina e' larga 440 punti. */
     val SCALA_TESTO = PT_PER_UNITA * UNITA_PER_PUNTO
 
-    fun titolo(testo: String): BloccoVoluto.Scritto {
-        val t = pulisci(testo).trim()
-        // Il formato si da' comunque: il testo inserito prenderebbe quello del punto in cui entra.
-        val pezzi = if (t.isEmpty()) emptyList() else listOf(PezzoDocs(0, t.length))
-        return BloccoVoluto.Scritto(CHIAVE_TITOLO, null, BloccoSalvato.impronta("titolo\u0000$t"), Aspetto.NESSUNO, listOf(ParagrafoScritto(t, "TITLE", pezzi = pezzi)))
-    }
-
     /**
      * Gli aspetti dei blocchi di una pagina in ordine: spazio sopra come la distanza dal blocco prima
      * (il primo di una pagina che non e' la prima ha un po' di spazio), rientro come la distanza dal
@@ -244,7 +237,6 @@ internal object ContenutoDocs {
     /** Un paragrafo lasciato vuoto in fondo al documento da un blocco tolto: torna un paragrafo normale. */
     fun stileNormale(): JSONObject = JSONObject().put("namedStyleType", "NORMAL_TEXT").put("alignment", "START")
 
-    const val CHIAVE_TITOLO = "titolo"
     const val CARATTERE_TRATTO = "Manrope"
 
     /** Nome dell'intervallo che segna un testo di Tratto nel documento. */
