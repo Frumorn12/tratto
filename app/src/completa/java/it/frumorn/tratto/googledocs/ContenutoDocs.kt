@@ -180,6 +180,7 @@ internal object ContenutoDocs {
         Carattere.MANROPE -> CARATTERE_TRATTO
         Carattere.SERIF -> "Noto Serif"
         Carattere.MONO -> "Roboto Mono"
+        Carattere.ARIAL -> "Arial"
     }
 
     /**

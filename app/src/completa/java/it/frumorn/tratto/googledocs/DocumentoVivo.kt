@@ -8,6 +8,7 @@ import android.util.Log
 import it.frumorn.tratto.backup.DriveBackup
 import it.frumorn.tratto.data.scriviAtomico
 import it.frumorn.tratto.data.TestoRicco
+import it.frumorn.tratto.data.UNITA_PER_PUNTO
 import it.frumorn.tratto.editor.DocumentoAperto
 import it.frumorn.tratto.editor.ModificaDocumento
 import it.frumorn.tratto.editor.ParagrafoDocumento
@@ -236,7 +237,7 @@ internal class DocumentoVivo(
         val rif = p.rif as? PagineDoc.Rif ?: return null
         val id = documento() ?: return null
         inModifica?.let { return null }
-        val s = SessioneTesto(id, rif, p.contenuto.testoSemplice)
+        val s = SessioneTesto(id, rif, p.contenuto)
         inModifica = s
         mostrato?.let { m ->
             m.nascosti = if (rif.indice >= 0) setOf(rif.indice) else emptySet()
@@ -251,11 +252,14 @@ internal class DocumentoVivo(
      * scrivono; alla prima pausa (mezzo secondo) si rilegge il suo testo e si manda solo la parte
      * diversa, con la revisione appena letta: Google unisce le modifiche arrivate nel frattempo.
      */
-    private inner class SessioneTesto(private val id: String, private val rif: PagineDoc.Rif, testo: String) : ModificaDocumento {
+    private inner class SessioneTesto(private val id: String, private val rif: PagineDoc.Rif, iniziale: TestoRicco) : ModificaDocumento {
         private val nome = "$PREFISSO_TESTO${UUID.randomUUID()}"
         private val pronta = CompletableDeferred<Boolean>()
         private val mutex = Mutex()
-        @Volatile private var ultimo = testo
+        @Volatile private var ultimo = iniziale
+
+        /** Il formato gia' nel documento: si manda solo quando cambia. */
+        private var formatoInviato = TestoCondiviso.firma(iniziale)
         private var attesa: Job? = null
 
         suspend fun avvia() {
@@ -280,7 +284,7 @@ internal class DocumentoVivo(
         }
 
         override fun cambiato(t: TestoRicco) {
-            ultimo = t.testoSemplice
+            ultimo = t
             attesa?.cancel()
             attesa = scope.launch(Dispatchers.IO) {
                 delay(ATTESA_TESTO_MS)
@@ -289,7 +293,7 @@ internal class DocumentoVivo(
         }
 
         override fun fine(t: TestoRicco) {
-            ultimo = t.testoSemplice
+            ultimo = t
             attesa?.cancel()
             scope.launch(Dispatchers.IO) {
                 invia()
@@ -308,9 +312,17 @@ internal class DocumentoVivo(
                 val d = docs ?: return@withLock
                 val json = d.testo(id)
                 val pezzo = TestoCondiviso.leggi(json, nome) ?: return@withLock
-                val r = TestoCondiviso.richieste(pezzo.inizio, pezzo.testo, ultimo)
+                val t = ultimo
+                val r = TestoCondiviso.richieste(pezzo.inizio, pezzo.testo, t.testoSemplice)
+                // Il formato (grassetto, colori, stili dei paragrafi...) solo se e' cambiato sul tablet.
+                val firma = TestoCondiviso.firma(t)
+                if (firma != formatoInviato) {
+                    val f = TestoCondiviso.formato(pezzo.inizio, t, UNITA_PER_PUNTO / (mostrato?.u ?: UNITA_PER_PUNTO).toDouble())
+                    for (k in 0 until f.length()) r.put(f.getJSONObject(k))
+                }
                 if (r.length() == 0) return@withLock
                 d.aggiornaSu(id, r, json.optString("revisionId"))
+                formatoInviato = firma
                 sveglia.trySend(Unit)
             } catch (e: CancellationException) {
                 throw e

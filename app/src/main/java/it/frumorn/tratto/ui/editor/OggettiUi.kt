@@ -230,6 +230,7 @@ private fun famiglia(c: Carattere) = when (c) {
     Carattere.MANROPE -> Manrope
     Carattere.SERIF -> FontFamily.Serif
     Carattere.MONO -> FontFamily.Monospace
+    Carattere.ARIAL -> FontFamily.SansSerif
 }
 
 @Composable

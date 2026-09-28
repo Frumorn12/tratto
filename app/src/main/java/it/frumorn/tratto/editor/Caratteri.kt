@@ -39,10 +39,34 @@ object Caratteri {
 
     private val cache = HashMap<Int, Typeface>()
 
+    /**
+     * Arial: Liberation Sans, che ha le stesse misure, se l'app lo porta con se' (versione completa,
+     * per i documenti Google); altrimenti il carattere senza grazie di sistema.
+     */
+    private val arial: Typeface by lazy {
+        val c = contesto ?: return@lazy Typeface.SANS_SERIF
+        try {
+            val r = c.resources
+            fun id(nome: String) = r.getIdentifier(nome, "font", c.packageName)
+            val base = id("liberation_sans_regular")
+            if (base == 0) return@lazy Typeface.SANS_SERIF
+            val famiglia = FontFamily.Builder(Font.Builder(r, base).setWeight(400).build())
+                .addFont(Font.Builder(r, id("liberation_sans_bold")).setWeight(700).build())
+                .addFont(Font.Builder(r, id("liberation_sans_italic")).setWeight(400).setSlant(1).build())
+                .addFont(Font.Builder(r, id("liberation_sans_bold_italic")).setWeight(700).setSlant(1).build())
+                .build()
+            Typeface.CustomFallbackBuilder(famiglia).setSystemFallback("sans-serif").build()
+        } catch (e: Exception) {
+            Log.w("Caratteri", "Liberation Sans non disponibile", e)
+            Typeface.SANS_SERIF
+        }
+    }
+
     fun base(c: Carattere): Typeface = when (c) {
         Carattere.MANROPE -> manrope
         Carattere.SERIF -> Typeface.SERIF
         Carattere.MONO -> Typeface.MONOSPACE
+        Carattere.ARIAL -> arial
     }
 
     /** Il carattere [c] con il peso e lo stile chiesti (il corsivo di Manrope e' inclinato dal sistema). */

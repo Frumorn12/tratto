@@ -74,7 +74,7 @@ enum class Allineamento(val chiave: String) { SINISTRA("sinistra"), CENTRO("cent
 
 enum class Elenco(val chiave: String) { NESSUNO("nessuno"), PUNTATO("puntato"), NUMERATO("numerato") }
 
-enum class Carattere(val chiave: String, val nome: String) { MANROPE("manrope", "Manrope"), SERIF("serif", "Serif"), MONO("mono", "Monospace") }
+enum class Carattere(val chiave: String, val nome: String) { MANROPE("manrope", "Manrope"), SERIF("serif", "Serif"), MONO("mono", "Monospace"), ARIAL("arial", "Arial") }
 
 /** Un pezzo di testo con lo stesso formato. I valori null prendono quelli dello stile del paragrafo. */
 data class Frammento(

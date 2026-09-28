@@ -1,5 +1,7 @@
 package it.frumorn.tratto.googledocs
 
+import it.frumorn.tratto.data.Allineamento
+import it.frumorn.tratto.data.TestoRicco
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -74,6 +76,54 @@ internal object TestoCondiviso {
         if (b > a) out.put(RichiesteDocs.cancella(a, b))
         val nuovo = pulisci(dopo.substring(p, dopo.length - q))
         if (nuovo.isNotEmpty()) out.put(RichiesteDocs.inserisciTesto(a, nuovo))
+        return out
+    }
+
+    /** Quello che del formato di un testo si manda al documento: stile e allineamento dei paragrafi, formato dei pezzi. */
+    fun firma(t: TestoRicco): List<Any> = t.paragrafi.map { p -> listOf(p.stile, p.allineamento, p.frammenti.map { it.testo.length to it.soloCarattere() }) }
+
+    /**
+     * Le richieste per dare al testo dell'intervallo che comincia in [inizio] il formato di [t]
+     * (il testo e' gia' quello di [t]). [scala] porta i punti di Tratto a quelli del documento.
+     */
+    fun formato(inizio: Int, t: TestoRicco, scala: Double): JSONArray {
+        val out = JSONArray()
+        var s = inizio
+        for (p in t.paragrafi) {
+            val l = p.lunghezza
+            out.put(
+                RichiesteDocs.stileParagrafo(
+                    s, s + l + 1,
+                    JSONObject().put("namedStyleType", ContenutoDocs.stile(p.stile)).put(
+                        "alignment",
+                        when (p.allineamento) {
+                            Allineamento.CENTRO -> "CENTER"
+                            Allineamento.DESTRA -> "END"
+                            Allineamento.GIUSTIFICATO -> "JUSTIFIED"
+                            Allineamento.SINISTRA -> "START"
+                        },
+                    ),
+                    "namedStyleType,alignment",
+                ),
+            )
+            var o = s
+            for (f in p.frammenti) {
+                val n = f.testo.length
+                if (n > 0) {
+                    val j = JSONObject()
+                    if (f.grassetto) j.put("bold", true)
+                    if (f.corsivo) j.put("italic", true)
+                    if (f.sottolineato) j.put("underline", true)
+                    if (f.barrato) j.put("strikethrough", true)
+                    f.colore?.let { j.put("foregroundColor", RichiesteDocs.colore(it)) }
+                    f.evidenziato?.let { j.put("backgroundColor", RichiesteDocs.colore(it)) }
+                    f.punti?.let { j.put("fontSize", RichiesteDocs.misura(Math.round(it * scala * 2) / 2.0)) }
+                    out.put(RichiesteDocs.stileTesto(o, o + n, j, "bold,italic,underline,strikethrough,foregroundColor,backgroundColor,fontSize"))
+                }
+                o += n
+            }
+            s += l + 1
+        }
         return out
     }
 

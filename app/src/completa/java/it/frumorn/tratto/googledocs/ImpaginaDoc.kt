@@ -32,6 +32,7 @@ import it.frumorn.tratto.data.Allineamento
 import it.frumorn.tratto.data.Carattere
 import it.frumorn.tratto.data.Frammento
 import it.frumorn.tratto.data.Paragrafo
+import it.frumorn.tratto.data.StileParagrafo
 import it.frumorn.tratto.data.TestoRicco
 import it.frumorn.tratto.data.UNITA_PER_PUNTO
 import it.frumorn.tratto.editor.Caratteri
@@ -345,7 +346,17 @@ internal class PagineDoc(
             "JUSTIFIED" -> Allineamento.GIUSTIFICATO
             else -> Allineamento.SINISTRA
         }
-        return TestoRicco(listOf(Paragrafo(fr, allineamento = al)))
+        return TestoRicco(listOf(Paragrafo(fr, stile = stileTratto(p.stile), allineamento = al)))
+    }
+
+    /** Lo stile con nome di Documenti come stile di paragrafo di Tratto (le intestazioni 4-6 come la 3). */
+    private fun stileTratto(nome: String): StileParagrafo = when (nome) {
+        "TITLE" -> StileParagrafo.TITOLO
+        "SUBTITLE" -> StileParagrafo.SOTTOTITOLO
+        "HEADING_1" -> StileParagrafo.INTESTAZIONE1
+        "HEADING_2" -> StileParagrafo.INTESTAZIONE2
+        "HEADING_3", "HEADING_4", "HEADING_5", "HEADING_6" -> StileParagrafo.INTESTAZIONE3
+        else -> StileParagrafo.NORMALE
     }
 
     /** I punti di Tratto sono di un A4 largo 1000 unita': si scala se la pagina del documento e' diversa. */
@@ -354,9 +365,10 @@ internal class PagineDoc(
     private fun carattereTratto(famiglia: String): Carattere {
         val n = famiglia.lowercase()
         return when {
+            n == "manrope" -> Carattere.MANROPE
             n.contains("mono") || n.contains("courier") -> Carattere.MONO
             n.contains("serif") && !n.contains("sans") || n.contains("times") || n.contains("georgia") -> Carattere.SERIF
-            else -> Carattere.MANROPE
+            else -> Carattere.ARIAL
         }
     }
 
