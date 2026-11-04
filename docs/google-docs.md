@@ -39,12 +39,20 @@ Collegare una nota collega anche Google Drive nelle impostazioni (stesso account
 
 ## 2. Quando si aggiorna
 
-- L'editor salva un secondo dopo l'ultimo tratto. `GoogleDocs.modificata` fa partire l'aggiornamento **un secondo dopo l'ultima modifica**: mentre si scrive senza pause non parte niente, alla prima pausa il documento si aggiorna.
+- L'editor salva un secondo dopo l'ultimo tratto, e scrivendo senza fermarsi **al massimo due secondi dopo il primo tratto non salvato** (`Attesa`). Subito dopo il salvataggio `GoogleDocs.modificata` fa partire l'aggiornamento: mentre si scrive una riga lunga il documento la riceve a pezzi, ogni due secondi circa.
+- Il testo scritto con lo strumento T parte mezzo secondo dopo l'ultimo tasto, e scrivendo di fila almeno ogni secondo.
 - Si mandano solo i blocchi cambiati. Una riga toccata costa un PNG di qualche decina di KB; una casella di testo cambiata non costa immagini.
-- Un aggiornamento già partito non si interrompe. Se nel frattempo arrivano altre modifiche, ne parte un altro subito dopo.
+- Un aggiornamento già partito non si interrompe. Se nel frattempo arrivano altre modifiche, ne parte un altro subito dopo: per ogni nota ne aspetta al massimo uno, l'ultimo (`Turni`).
 - Alla **chiusura dell'editor** e quando l'app va **in secondo piano**, se ci sono modifiche non ancora mandate, `GoogleDocs.finisciInBackground` le affida a `DocsWorker` (WorkManager, un lavoro per nota, rete richiesta). Il lavoro finisce anche ad app chiusa e, senza rete, parte appena la rete torna.
 - Senza rete anche l'aggiornamento dall'app passa a `DocsWorker`.
-- Gli aggiornamenti vanno uno alla volta, per tutte le note (un `Mutex`).
+- Gli aggiornamenti vanno uno alla volta, per tutte le note (il `Mutex` di `Turni`).
+- Ogni aggiornamento dei disegni scrive nel registro quanto è durato ogni passaggio: `adb logcat -s GoogleDocs` (lettura del documento, pagine, piano, ancore, png, script, tolti).
+
+### Lo script dei disegni
+
+L'API di Docs non sa mettere immagini davanti al testo: lo fa lo script Apps Script in [apps-script/Codice.gs](apps-script/Codice.gs), chiamato con `scripts.run` (id del deployment in `~/.config/tratto/google.properties`, `scriptDocs=`). Dal 04/11 lo script riceve anche i disegni vecchi da togliere e fa tutto in una esecuzione: un disegno che cambia costa due chiamate (intervalli, script) invece di tre, e nel documento il nuovo prende il posto del vecchio in un colpo solo. Lo script vecchio risponde solo con la lista degli id: Tratto se ne accorge e toglie i disegni vecchi con un `batchUpdate`, come prima.
+
+Per aggiornare lo script su Google: in script.google.com apri il progetto «Tratto disegni», incolla `Codice.gs`, poi **Esegui il deployment → Gestisci deployment → matita → Versione: Nuova versione → Esegui il deployment**. L'id del deployment resta lo stesso, quindi l'app non va ricompilata.
 
 ---
 
@@ -186,7 +194,7 @@ Oltre a quanto descritto in [backup.md](backup.md) §5:
 
 ## 8. Limiti
 
-- **Non è in tempo reale al tratto**: il documento si aggiorna alle pause, un paio di secondi dopo l'ultimo tratto.
+- **Non è in tempo reale al tratto**: scrivendo di fila il documento riceve i tratti ogni due secondi circa più il tempo dell'aggiornamento (lo script di Google da solo prende qualche secondo); alla pausa, poco dopo l'ultimo tratto.
   - Una riga nuova costa un caricamento su Drive e un `batchUpdate`.
   - Le quote di Docs sono 60 scritture al minuto per utente: con un aggiornamento alla volta si resta sotto.
 - **Il documento non torna sul tablet**: quello che si scrive in Google Docs resta nel documento, ma non entra nella nota.
