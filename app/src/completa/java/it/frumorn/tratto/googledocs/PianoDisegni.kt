@@ -85,6 +85,9 @@ internal class PianoDisegni(
 
     val vuoto: Boolean get() = daAggiungere.isEmpty() && daTogliere.isEmpty()
 
+    /** Il paragrafo (indice nel modello) a cui e' ancorato l'oggetto [oggetto] del documento, se c'e'. */
+    fun paragrafoDi(oggetto: String): Int? = ancoraDi[oggetto]
+
     /** L'ancora di un disegno, o null se sulla sua pagina il documento non ha paragrafi. */
     fun ancora(v: DisegnoVoluto): Ancora? {
         var scelto = -1

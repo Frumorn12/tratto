@@ -14,16 +14,18 @@ import java.util.UUID
  * 1. Si legge il documento e lo si impagina come su Tratto, per sapere dove sono i paragrafi.
  * 2. Sul paragrafo di ogni disegno nuovo si mette un intervallo con nome temporaneo, con gli indici
  *    della revisione letta: se nel frattempo qualcuno scrive, Google lo sposta con il testo.
- * 3. Lo script ([ScriptDocs]) ancora a quei paragrafi le immagini, davanti al testo, e toglie gli
- *    intervalli.
- * 4. Si tolgono i disegni vecchi (cambiati o cancellati sul foglio).
+ * 3. Lo script ([ScriptDocs]) ancora a quei paragrafi le immagini, davanti al testo, e nella
+ *    stessa esecuzione toglie i disegni vecchi (cambiati o cancellati sul foglio) e gli intervalli:
+ *    chi guarda il documento vede il disegno nuovo prendere il posto del vecchio in un colpo solo.
+ * 4. Se ci sono solo disegni da togliere, o lo script e' quello vecchio che non sa toglierli, si
+ *    tolgono con un batchUpdate.
  *
  * La prima volta si tolgono anche i blocchi messi nel documento dalla versione a blocchi (immagini
  * in linea e testi di Tratto), che ora sarebbero doppi.
  */
 internal class SincroniaDisegni(
-    private val docs: DocsRest,
-    private val script: ScriptDocs,
+    private val docs: ApiDocs,
+    private val script: ScriptDisegni,
     private val nota: NotaDocs,
     /** Impagina il documento come su Tratto (su Android con [PagineDoc]). */
     private val impagina: (ModelloDoc) -> PostiParagrafi,
@@ -74,13 +76,22 @@ internal class SincroniaDisegni(
             return l.copy(disegni = piano.tenuti)
         }
 
-        // Intervalli temporanei sui paragrafi di ancoraggio.
-        val nomi = piano.daAggiungere.map { "$PREFISSO_ANCORA${UUID.randomUUID()}" }
+        // Intervalli temporanei sui paragrafi di ancoraggio dei disegni nuovi e, se c'e' da chiamare lo
+        // script, anche su quelli dei disegni da togliere: lo script li trova li' anche se nel frattempo
+        // qualcuno ha scritto.
+        val nomi = piano.daAggiungere.map { nuovoNome() }
+        val togli = if (nomi.isEmpty() || !scriptToglie) emptyList()
+        else piano.daTogliere.map { o -> ScriptDocs.Togli(o, piano.paragrafoDi(o)?.let { nuovoNome() }) }
         if (nomi.isNotEmpty()) {
             val r = JSONArray()
             for ((k, x) in piano.daAggiungere.withIndex()) {
                 val p = modello.paragrafi[x.second.paragrafo]
                 r.put(RichiesteDocs.creaIntervallo(nomi[k], p.inizio, p.inizio + 1))
+            }
+            for (t in togli) {
+                val nome = t.ancora ?: continue
+                val p = modello.paragrafi[piano.paragrafoDi(t.oggetto) ?: continue]
+                r.put(RichiesteDocs.creaIntervallo(nome, p.inizio, p.inizio + 1))
             }
             docs.aggiornaSu(l.documento, r, modello.revisione)
             tempo("ancore")
@@ -88,6 +99,7 @@ internal class SincroniaDisegni(
 
         // I PNG dei disegni e lo script.
         val nuovi = ArrayList<DisegnoSalvato>(piano.tenuti)
+        var tolti: Set<String> = emptySet()
         if (piano.daAggiungere.isNotEmpty()) {
             val perPagina = lette.associateBy { it.pagina.id }
             val disegni = piano.daAggiungere.mapIndexed { k, (v, a) ->
@@ -102,7 +114,12 @@ internal class SincroniaDisegni(
                 }
             }
             tempo("png")
-            val ids = script.aggiungiDisegni(l.documento, disegni)
+            val esito = script.aggiungiDisegni(l.documento, disegni, togli)
+            val ids = esito.ids
+            tolti = esito.tolti.orEmpty()
+            // Lo script vecchio lascia gli intervalli dei disegni da togliere: li toglie la pulizia della
+            // prossima volta, e finche' l'app resta aperta non si mettono piu'.
+            scriptToglie = esito.tolti != null
             tempo("script")
             for ((k, x) in piano.daAggiungere.withIndex()) {
                 val id = ids.getOrNull(k) ?: continue
@@ -112,14 +129,16 @@ internal class SincroniaDisegni(
         l = l.copy(disegni = nuovi)
         progresso(l)
 
-        // I disegni vecchi: se qualcuno li ha gia' tolti, si rilegge e si toglie quello che resta.
-        if (piano.daTogliere.isNotEmpty()) {
+        // I disegni vecchi che lo script non ha tolto: se qualcuno li ha gia' tolti, si rilegge e si
+        // toglie quello che resta.
+        val daTogliere = piano.daTogliere.filter { it !in tolti }
+        if (daTogliere.isNotEmpty()) {
             try {
-                docs.aggiorna(l.documento, JSONArray().apply { piano.daTogliere.forEach { put(RichiesteDocs.togliPosizionato(it)) } })
+                docs.aggiorna(l.documento, JSONArray().apply { daTogliere.forEach { put(RichiesteDocs.togliPosizionato(it)) } })
             } catch (e: ErroreDrive) {
                 if (e.codice != 400) throw e
                 val ancora = docs.completo(l.documento).optJSONObject("positionedObjects")
-                val resti = piano.daTogliere.filter { ancora?.has(it) == true }
+                val resti = daTogliere.filter { ancora?.has(it) == true }
                 if (resti.isNotEmpty()) docs.aggiorna(l.documento, JSONArray().apply { resti.forEach { put(RichiesteDocs.togliPosizionato(it)) } })
             }
             tempo("tolti")
@@ -154,7 +173,12 @@ internal class SincroniaDisegni(
         return out
     }
 
+    private fun nuovoNome() = "$PREFISSO_ANCORA${UUID.randomUUID()}"
+
     companion object {
+        /** Lo script su Google sa togliere i disegni vecchi (falso dopo una risposta dello script vecchio). */
+        @Volatile var scriptToglie = true
+
         /** Nome degli intervalli temporanei su cui lo script ancora i disegni. */
         const val PREFISSO_ANCORA = "tratto-ancora-"
     }

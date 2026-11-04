@@ -10,8 +10,28 @@ import org.json.JSONObject
 import java.io.File
 import java.net.URLEncoder
 
+/** Le chiamate a Google Docs che servono a [SincroniaDisegni] (nei test, un Google finto). */
+internal interface ApiDocs {
+    /** Il documento intero. */
+    suspend fun completo(id: String): JSONObject
+
+    suspend fun aggiorna(id: String, richieste: JSONArray, revisione: String? = null): JSONObject
+
+    /** Come [aggiorna], con gli indici della revisione [base]. */
+    suspend fun aggiornaSu(id: String, richieste: JSONArray, base: String): JSONObject
+}
+
+/** Lo script che mette i disegni davanti al testo (nei test, un Google finto). */
+internal interface ScriptDisegni {
+    /**
+     * Mette [disegni] nel documento e, nella stessa esecuzione, toglie [togli]. Lo script vecchio
+     * (non ancora aggiornato su Google) non sa togliere: allora [ScriptDocs.Esito.tolti] e' null.
+     */
+    suspend fun aggiungiDisegni(documento: String, disegni: List<ScriptDocs.Disegno>, togli: List<ScriptDocs.Togli>): ScriptDocs.Esito
+}
+
 /** Le due chiamate dell'API di Google Docs usate da Tratto, con il client (token e tentativi) di Drive. */
-internal class DocsRest(private val rest: DriveRest) {
+internal class DocsRest(private val rest: DriveRest) : ApiDocs {
     suspend fun documento(id: String): JSONObject =
         rest.richiesta("GET", "$API/documents/$id?fields=${URLEncoder.encode(DocLetto.CAMPI, "UTF-8")}")
 
@@ -45,16 +65,16 @@ internal class DocsRest(private val rest: DriveRest) {
     )
 
     /** Il documento intero, per disegnarlo. */
-    suspend fun completo(id: String): JSONObject = rest.richiesta("GET", "$API/documents/$id")
+    override suspend fun completo(id: String): JSONObject = rest.richiesta("GET", "$API/documents/$id")
 
-    suspend fun aggiorna(id: String, richieste: JSONArray, revisione: String? = null): JSONObject =
+    override suspend fun aggiorna(id: String, richieste: JSONArray, revisione: String?): JSONObject =
         rest.richiesta("POST", "$API/documents/$id:batchUpdate", RichiesteDocs.corpo(richieste, revisione))
 
     /**
      * Come [aggiorna], ma gli indici sono quelli della revisione [base]: se nel frattempo qualcuno ha
      * scritto nel documento, Google sposta le richieste sopra le sue modifiche invece di rifiutarle.
      */
-    suspend fun aggiornaSu(id: String, richieste: JSONArray, base: String): JSONObject =
+    override suspend fun aggiornaSu(id: String, richieste: JSONArray, base: String): JSONObject =
         rest.richiesta("POST", "$API/documents/$id:batchUpdate", RichiesteDocs.corpoUnito(richieste, base))
 
     private companion object {
@@ -66,12 +86,20 @@ internal class DocsRest(private val rest: DriveRest) {
  * Lo script di Google che mette i disegni davanti al testo (docs/apps-script/Codice.gs), chiamato con
  * l'API Apps Script. [id] e' quello del suo deployment "eseguibile API".
  */
-internal class ScriptDocs(private val rest: DriveRest, private val id: String) {
+internal class ScriptDocs(private val rest: DriveRest, private val id: String) : ScriptDisegni {
     /** Un disegno da mettere: nome dell'intervallo sul paragrafo, PNG, misure e posizione in punti. */
     class Disegno(val ancora: String, val png: ByteArray, val larghezza: Double, val altezza: Double, val sinistra: Double, val alto: Double)
 
-    /** Gli id delle immagini messe, nello stesso ordine (null dove il paragrafo non c'era piu'). */
-    suspend fun aggiungiDisegni(documento: String, disegni: List<Disegno>): List<String?> {
+    /** Un disegno da togliere: id dell'immagine e, se si sa, nome di un intervallo sul paragrafo a cui e' ancorata. */
+    class Togli(val oggetto: String, val ancora: String?)
+
+    /**
+     * [ids]: le immagini messe, nello stesso ordine (null dove il paragrafo non c'era piu').
+     * [tolti]: le immagini tolte dallo script; null se lo script e' quello vecchio, che non toglie.
+     */
+    class Esito(val ids: List<String?>, val tolti: Set<String>?)
+
+    override suspend fun aggiungiDisegni(documento: String, disegni: List<Disegno>, togli: List<Togli>): Esito {
         val lista = JSONArray()
         for (d in disegni) {
             lista.put(
@@ -80,14 +108,20 @@ internal class ScriptDocs(private val rest: DriveRest, private val id: String) {
                     .put("larghezza", d.larghezza * PX_PER_PT).put("altezza", d.altezza * PX_PER_PT).put("sinistra", d.sinistra).put("alto", d.alto),
             )
         }
-        val corpo = JSONObject().put("function", "aggiungiDisegni").put("parameters", JSONArray().put(documento).put(lista)).put("devMode", false)
+        val via = JSONArray()
+        for (t in togli) via.put(JSONObject().put("id", t.oggetto).put("ancora", t.ancora ?: JSONObject.NULL))
+        val corpo = JSONObject().put("function", "aggiungiDisegni").put("parameters", JSONArray().put(documento).put(lista).put(via)).put("devMode", false)
         val r = rest.richiesta("POST", "https://script.googleapis.com/v1/scripts/$id:run", corpo, idempotente = false)
         r.optJSONObject("error")?.let { e ->
             val dettaglio = e.optJSONArray("details")?.optJSONObject(0)?.optString("errorMessage")
             throw java.io.IOException("Lo script di Google Docs non e' andato: ${dettaglio ?: e.optString("message")}")
         }
-        val ids = r.optJSONObject("response")?.optJSONArray("result") ?: JSONArray()
-        return (0 until disegni.size).map { k -> ids.optString(k).takeIf { !ids.isNull(k) && it.isNotEmpty() } }
+        // Lo script vecchio restituisce solo la lista degli id; quello nuovo { ids, tolti }.
+        val risposta = r.optJSONObject("response")
+        val nuovo = risposta?.optJSONObject("result")
+        val ids = nuovo?.optJSONArray("ids") ?: risposta?.optJSONArray("result") ?: JSONArray()
+        val tolti = nuovo?.optJSONArray("tolti")?.let { a -> (0 until a.length()).mapNotNullTo(HashSet()) { a.optString(it).takeIf { s -> s.isNotEmpty() } } }
+        return Esito((0 until disegni.size).map { k -> ids.optString(k).takeIf { !ids.isNull(k) && it.isNotEmpty() } }, tolti)
     }
 
     private companion object {

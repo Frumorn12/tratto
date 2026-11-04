@@ -9,10 +9,15 @@
  * ancorarlo (cosi' il paragrafo si ritrova anche se nel frattempo qualcuno ha scritto nel documento),
  * il PNG in base64, le misure e la posizione rispetto al paragrafo, in punti.
  *
- * Restituisce, nello stesso ordine, l'id di ogni immagine nel documento (null se il paragrafo non
- * c'era piu').
+ * [togli] (facoltativo) sono i disegni vecchi da togliere nella stessa esecuzione: l'id
+ * dell'immagine e il nome di un intervallo sul paragrafo a cui e' ancorata (o null). Chi guarda il
+ * documento vede il disegno nuovo prendere il posto del vecchio in un colpo solo.
+ *
+ * Senza [togli] restituisce, nello stesso ordine, l'id di ogni immagine messa (null se il paragrafo
+ * non c'era piu'), come la prima versione. Con [togli] restituisce { ids: quella lista, tolti: gli
+ * id delle immagini tolte }.
  */
-function aggiungiDisegni(documentoId, disegni) {
+function aggiungiDisegni(documentoId, disegni, togli) {
   var doc = DocumentApp.openById(documentoId);
   var ids = [];
   for (var i = 0; i < disegni.length; i++) {
@@ -31,8 +36,42 @@ function aggiungiDisegni(documentoId, disegni) {
       .setTopOffset(d.alto);
     ids.push(img.getId());
   }
+  var tolti = [];
+  if (togli) {
+    for (var j = 0; j < togli.length; j++) {
+      if (togliImmagine(doc, togli[j])) tolti.push(togli[j].id);
+    }
+  }
   doc.saveAndClose();
-  return ids;
+  return togli ? { ids: ids, tolti: tolti } : ids;
+}
+
+/**
+ * Toglie l'immagine [t.id]: prima dal paragrafo dell'intervallo [t.ancora], se no da qualsiasi
+ * paragrafo del corpo. Vero se l'ha tolta.
+ */
+function togliImmagine(doc, t) {
+  var paragrafo = null;
+  if (t.ancora) {
+    var intervalli = doc.getNamedRanges(t.ancora);
+    if (intervalli.length > 0) paragrafo = paragrafoDi(intervalli[0].getRange().getRangeElements()[0].getElement());
+    for (var k = 0; k < intervalli.length; k++) intervalli[k].remove();
+  }
+  if (paragrafo !== null && togliDa(paragrafo, t.id)) return true;
+  var paragrafi = doc.getBody().getParagraphs();
+  for (var i = 0; i < paragrafi.length; i++) {
+    if (togliDa(paragrafi[i], t.id)) return true;
+  }
+  // Non trovata: se c'e' ancora da qualche parte (o era gia' sparita) ci pensa Tratto con l'API di Docs.
+  return false;
+}
+
+function togliDa(paragrafo, id) {
+  try {
+    return paragrafo.removePositionedImage(id) === true;
+  } catch (e) {
+    return false;
+  }
 }
 
 /** Il paragrafo (o la voce di elenco) che contiene [el]. */
