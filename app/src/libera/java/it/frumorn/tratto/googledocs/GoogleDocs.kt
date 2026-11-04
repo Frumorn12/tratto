@@ -16,7 +16,7 @@ object GoogleDocs {
     const val DISPONIBILE = false
 
     /** Nessuna nota e' collegata: non c'e' niente da aggiornare. */
-    fun modificata(context: Context, notaId: String) = Unit
+    fun modificata(context: Context, notaId: String, ritardo: Long = 0L) = Unit
 
     fun finisciInBackground(context: Context, notaId: String, cambiata: Boolean) = Unit
 

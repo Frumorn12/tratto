@@ -1,6 +1,7 @@
 package it.frumorn.tratto.googledocs
 
 import it.frumorn.tratto.backup.ErroreDrive
+import it.frumorn.tratto.data.NotaInfo
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -61,6 +62,7 @@ internal class SincroniaDisegni(
             progresso(l)
         }
 
+        l = titolo(l, json, info)
         val modello = ModelloDoc.da(json)
         val lette = withContext(Dispatchers.IO) { pagine.map { nota.leggiPagina(it) } }
         tempo("pagine")
@@ -174,6 +176,19 @@ internal class SincroniaDisegni(
     }
 
     private fun nuovoNome() = "$PREFISSO_ANCORA${UUID.randomUUID()}"
+
+    /**
+     * Il nome della nota va al documento quando cambia su Tratto. Se e' cambiato solo in Google Docs
+     * (Tratto ha ancora il nome che aveva mandato), resta quello scelto in Docs.
+     */
+    private suspend fun titolo(l: CollegamentoDocs, json: JSONObject, info: NotaInfo): CollegamentoDocs {
+        val nome = SincroniaDocs.nomeDocumento(info)
+        if (json.optString("title") == nome) return if (l.titolo == nome) l else l.copy(titolo = nome)
+        if (l.titolo == nome) return l
+        docs.rinomina(l.documento, nome)
+        tempo("nome")
+        return l.copy(titolo = nome)
+    }
 
     companion object {
         /** Lo script su Google sa togliere i disegni vecchi (falso dopo una risposta dello script vecchio). */

@@ -35,6 +35,15 @@ class SincroniaDisegniTest {
         private var revisione = 1
         private var prossimo = 1
 
+        /** Il nome del documento su Drive, e quante volte Tratto l'ha cambiato. */
+        var titolo = "Nota senza titolo"
+        var rinomine = 0
+
+        override suspend fun rinomina(id: String, nome: String) {
+            titolo = nome
+            rinomine++
+        }
+
         /** Le richieste di ogni batchUpdate, e per ogni chiamata dello script quanti disegni messi e tolti. */
         val scritture = ArrayList<JSONArray>()
         val script = ArrayList<Pair<Int, Int>>()
@@ -77,7 +86,7 @@ class SincroniaDisegniTest {
                     ),
                 )
             }
-            return JSONObject().put("revisionId", "r$revisione").put("title", "doc").put("body", JSONObject().put("content", contenuto))
+            return JSONObject().put("revisionId", "r$revisione").put("title", titolo).put("body", JSONObject().put("content", contenuto))
                 .put("positionedObjects", po).put("namedRanges", nr)
         }
 
@@ -129,6 +138,7 @@ class SincroniaDisegniTest {
         override val id = "nota1"
         private val pagina = Pagina("p1", Sfondo.RIGHE, pdfPagina = -1)
         val tratti = ArrayList<Tratto>()
+        var titolo = "Appunti"
         private var prossimo = 1L
 
         /** Un tratto a zig zag alto 25 all'altezza [y], da [x0] a [x1]. */
@@ -143,7 +153,7 @@ class SincroniaDisegniTest {
             return Tratto(prossimo++, Penna.PENNA, 0xFF000000.toInt(), 3f, p).also { tratti += it }
         }
 
-        override fun leggi() = NotaInfo(id, "Appunti", null, 0L, 0L, false, 1, Sfondo.RIGHE, false) to listOf(pagina)
+        override fun leggi() = NotaInfo(id, titolo, null, 0L, 0L, false, 1, Sfondo.RIGHE, false) to listOf(pagina)
 
         override fun firma(pagina: Pagina) = null
 
@@ -239,6 +249,46 @@ class SincroniaDisegniTest {
         val s2 = sincronia(nuovo)
         s2.sincronizza(CollegamentoDocs("doc"))
         assertTrue(SincroniaDisegni.scriptToglie)
+    }
+
+    /** "Ho modificato il nome della nota da lì ma mi rimane nota senza titolo su Google Docs" (Andrea, 04/11). */
+    @Test
+    fun ilNomeDellaNotaVaAlDocumento() = runBlocking {
+        val google = GoogleFinto(scriptNuovo = true)
+        val s = sincronia(google)
+        var link = s.sincronizza(CollegamentoDocs("doc"))
+        assertEquals("Appunti", google.titolo)
+        nota.titolo = "Lezione di storia"
+        link = s.sincronizza(link)
+        assertEquals("Lezione di storia", google.titolo)
+        assertEquals("Lezione di storia", link.titolo)
+        // Senza cambi non si rinomina di nuovo.
+        s.sincronizza(link)
+        assertEquals(2, google.rinomine)
+    }
+
+    @Test
+    fun ilNomeCambiatoInDocsNonSiRimetteIndietro() = runBlocking {
+        val google = GoogleFinto(scriptNuovo = true)
+        val s = sincronia(google)
+        var link = s.sincronizza(CollegamentoDocs("doc"))
+        google.titolo = "Scelto in Docs"
+        link = s.sincronizza(link)
+        assertEquals("Scelto in Docs", google.titolo)
+        assertEquals(1, google.rinomine)
+        // Poi lo si cambia su Tratto: vale quello di Tratto.
+        nota.titolo = "Nuovo"
+        s.sincronizza(link)
+        assertEquals("Nuovo", google.titolo)
+    }
+
+    @Test
+    fun notaSenzaNome() = runBlocking {
+        val google = GoogleFinto(scriptNuovo = true)
+        google.titolo = "Vecchio"
+        nota.titolo = ""
+        sincronia(google).sincronizza(CollegamentoDocs("doc"))
+        assertEquals("Nota senza titolo", google.titolo)
     }
 
     @Test

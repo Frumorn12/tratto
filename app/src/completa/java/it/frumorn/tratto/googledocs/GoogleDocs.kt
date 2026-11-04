@@ -135,13 +135,16 @@ object GoogleDocs {
         return _stati
     }
 
-    /** La nota [notaId] e' cambiata (salvata o rinominata): se e' collegata, il documento si aggiorna tra poco. */
-    fun modificata(context: Context, notaId: String) {
+    /**
+     * La nota [notaId] e' cambiata (salvata o rinominata): se e' collegata, il documento si aggiorna
+     * dopo [ritardo] (il titolo si scrive una lettera alla volta: si aspetta l'ultima).
+     */
+    fun modificata(context: Context, notaId: String, ritardo: Long = RITARDO_MS) {
         val app = context.applicationContext
         scope.launch(Dispatchers.IO) {
             carica(app)
             if (!segnaModificata(notaId)) return@launch
-            programma(app, notaId, RITARDO_MS)
+            programma(app, notaId, ritardo)
         }
     }
 

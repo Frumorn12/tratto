@@ -283,8 +283,13 @@ class SessioneEditor(private val stato: StatoApp, val id: String, context: Conte
 
     fun rinomina(nuovo: String) {
         titolo = nuovo
-        stato.rinomina(id, nuovo.trim())
-        GoogleDocs.modificata(contesto, id)
+        val t = nuovo.trim()
+        // Il documento Google si aggiorna dopo che il nome e' sul disco, un secondo dopo l'ultima lettera.
+        // Una lettera alla volta, in ordine: l'ultimo nome scritto e' quello che resta.
+        stato.scope.launch(nomiInOrdine) {
+            stato.archivio.rinomina(id, t)
+            GoogleDocs.modificata(contesto, id, ritardo = 1000L)
+        }
     }
 
     /** Pannello della trascrizione: null se chiuso. */
@@ -514,6 +519,8 @@ class SessioneEditor(private val stato: StatoApp, val id: String, context: Conte
     }
 
     private companion object {
+        val nomiInOrdine = Dispatchers.IO.limitedParallelism(1)
+
         /** Pausa dopo l'ultima modifica... */
         const val PAUSA_SALVATAGGIO_MS = 1000L
         /** ...ma mai piu' di cosi' dalla prima non salvata. */

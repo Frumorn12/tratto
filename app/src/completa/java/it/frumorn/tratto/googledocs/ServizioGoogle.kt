@@ -19,6 +19,9 @@ internal interface ApiDocs {
 
     /** Come [aggiorna], con gli indici della revisione [base]. */
     suspend fun aggiornaSu(id: String, richieste: JSONArray, base: String): JSONObject
+
+    /** Cambia il nome del documento (su Drive). */
+    suspend fun rinomina(id: String, nome: String)
 }
 
 /** Lo script che mette i disegni davanti al testo (nei test, un Google finto). */
@@ -76,6 +79,10 @@ internal class DocsRest(private val rest: DriveRest) : ApiDocs {
      */
     override suspend fun aggiornaSu(id: String, richieste: JSONArray, base: String): JSONObject =
         rest.richiesta("POST", "$API/documents/$id:batchUpdate", RichiesteDocs.corpoUnito(richieste, base))
+
+    override suspend fun rinomina(id: String, nome: String) {
+        rest.aggiornaMetadati(id, JSONObject().put("name", nome))
+    }
 
     private companion object {
         const val API = "https://docs.googleapis.com/v1"
