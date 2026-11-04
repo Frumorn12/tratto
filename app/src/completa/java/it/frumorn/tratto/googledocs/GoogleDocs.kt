@@ -1,9 +1,11 @@
 package it.frumorn.tratto.googledocs
 
 import android.content.Context
+import android.os.SystemClock
 import it.frumorn.tratto.BuildConfig
 import it.frumorn.tratto.TrattoApp
 import it.frumorn.tratto.backup.DriveBackup
+import it.frumorn.tratto.backup.DriveRest
 import it.frumorn.tratto.backup.ErroreDrive
 import it.frumorn.tratto.backup.temporaneo
 import it.frumorn.tratto.data.scriviAtomico
@@ -13,16 +15,11 @@ import it.frumorn.tratto.editor.SpostamentoTratti
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.json.JSONException
 import java.io.File
@@ -78,20 +75,20 @@ object GoogleDocs {
     private const val MODO_DOCUMENTO = true
 
     /**
-     * Attesa dopo l'ultima modifica (l'editor salva gia' un secondo dopo l'ultimo tratto): alla prima
-     * pausa il documento si aggiorna. Si cambiano solo i blocchi toccati, quindi basta poco.
+     * Attesa dopo un salvataggio prima di aggiornare il documento. Nessuna: l'editor aspetta gia' la
+     * pausa (o al massimo due secondi scrivendo di fila) e un aggiornamento in coda prende il posto
+     * dell'altro (vedi [Turni]).
      */
-    private const val RITARDO_MS = 1000L
+    private const val RITARDO_MS = 0L
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
-    /** Un aggiornamento alla volta, per tutte le note: i file temporanei su Drive sono tutti di chi lavora. */
-    private val mutex = Mutex()
+    /** Un aggiornamento alla volta, per tutte le note, e per ogni nota al massimo uno in attesa. */
+    private val turni = Turni(scope)
     private val lock = Any()
 
     // Protetti da lock (dati si legge anche senza, per sapere se e' gia' caricato).
     @Volatile private var dati: CollegamentiDocs? = null
-    private val attese = HashMap<String, Job>()
     private val generazioni = HashMap<String, Int>()
     private val sporche = HashSet<String>()
 
@@ -158,7 +155,7 @@ object GoogleDocs {
             if (cambiata) segnaModificata(notaId)
             val daMandare = synchronized(lock) {
                 val s = notaId in sporche
-                if (s) attese.remove(notaId)?.cancel()
+                if (s) turni.annulla(notaId)
                 s
             }
             if (daMandare) DocsWorker.accoda(app, notaId)
@@ -185,7 +182,7 @@ object GoogleDocs {
         val archivio = TrattoApp.archivio(app)
         archivio.caricaIndice()
         val info = archivio.note.value.find { it.id == notaId } ?: throw IOException("La nota non esiste più.")
-        val documento = mutex.withLock {
+        val documento = turni.esegui {
             val servizio = servizio(app)
             val id = servizio.creaDocumento(info)
             modificaDati(app) {
@@ -204,7 +201,7 @@ object GoogleDocs {
         val app = context.applicationContext
         carica(app)
         synchronized(lock) {
-            attese.remove(notaId)?.cancel()
+            turni.annulla(notaId)
             sporche -= notaId
         }
         DocsWorker.annulla(app, notaId)
@@ -218,28 +215,25 @@ object GoogleDocs {
     // ---------------------------------------------------------------- aggiornamento
 
     private fun programma(app: Context, notaId: String, ritardo: Long) {
-        synchronized(lock) {
-            attese.remove(notaId)?.cancel()
-            attese[notaId] = scope.launch {
-                delay(ritardo)
-                // Una volta partito non si interrompe: una nuova modifica aspetta la fine e riparte.
-                withContext(NonCancellable) {
-                    try {
-                        esegui(app, notaId)
-                    } catch (e: Exception) {
-                        // Senza rete ci pensa il worker, che aspetta la connessione anche ad app chiusa.
-                        if (e.temporaneo()) DocsWorker.accoda(app, notaId)
-                    }
-                }
+        turni.programma(notaId, ritardo) {
+            try {
+                eseguiNelTurno(app, notaId)
+            } catch (e: Exception) {
+                // Senza rete ci pensa il worker, che aspetta la connessione anche ad app chiusa.
+                if (e.temporaneo()) DocsWorker.accoda(app, notaId)
             }
         }
     }
 
-    private suspend fun esegui(app: Context, notaId: String) = mutex.withLock {
+    private suspend fun esegui(app: Context, notaId: String) = turni.esegui { eseguiNelTurno(app, notaId) }
+
+    /** Aggiorna il documento della nota; da chiamare solo al proprio turno (vedi [Turni]). */
+    private suspend fun eseguiNelTurno(app: Context, notaId: String) {
         carica(app)
-        val link = collegamento(notaId) ?: return@withLock
+        val link = collegamento(notaId) ?: return
         val generazione = synchronized(lock) { generazioni[notaId] ?: 0 }
         imposta(notaId) { it.copy(fase = FaseDocs.IN_CORSO) }
+        val inizio = SystemClock.elapsedRealtime()
         try {
             val servizio = servizio(app)
             val cartelle = servizio.cartelle
@@ -247,7 +241,7 @@ object GoogleDocs {
             val nota = NotaArchivio(archivio, notaId)
             if (MODO_DOCUMENTO) {
                 if (BuildConfig.SCRIPT_DOCS.isEmpty()) throw IOException("Manca lo script di Google Docs: i disegni restano su Tratto.")
-                val caratteri = CaratteriDoc(app)
+                val caratteri = caratteri(app)
                 val disegni = SincroniaDisegni(
                     DocsRest(servizio.rest), ScriptDocs(servizio.rest, BuildConfig.SCRIPT_DOCS), nota,
                     impagina = { m ->
@@ -256,8 +250,17 @@ object GoogleDocs {
                     },
                     cartella = File(app.cacheDir, "google-docs"),
                 )
-                val finale = disegni.sincronizza(link) { salvaCollegamento(app, notaId, it, cartelle) }
-                salvaCollegamento(app, notaId, finale, cartelle)
+                try {
+                    val finale = disegni.sincronizza(link) { salvaCollegamento(app, notaId, it, cartelle) }
+                    salvaCollegamento(app, notaId, finale, cartelle)
+                } finally {
+                    // Per capire dove va il tempo: adb logcat -s GoogleDocs
+                    android.util.Log.i(
+                        "GoogleDocs",
+                        "Disegni di $notaId in ${SystemClock.elapsedRealtime() - inizio} ms: " +
+                            disegni.tempi.entries.joinToString { "${it.key} ${it.value}" },
+                    )
+                }
             } else {
                 val sincronia = SincroniaDocs(servizio, nota, File(app.cacheDir, "google-docs"))
                 try {
@@ -285,6 +288,7 @@ object GoogleDocs {
             imposta(notaId) { it.copy(fase = FaseDocs.IN_ATTESA) }
             throw e
         } catch (e: DriveBackup.AccessoNecessario) {
+            rest = null
             imposta(notaId) { it.copy(fase = FaseDocs.ERRORE, messaggio = "Serve di nuovo l'accesso a Google: tocca per ricollegare.", serveAccesso = true) }
             throw e
         } catch (e: Exception) {
@@ -298,10 +302,20 @@ object GoogleDocs {
 
     /** Drive e Docs con il token dell'account collegato; lancia [DriveBackup.AccessoNecessario] se serve il consenso. */
     private suspend fun servizio(app: Context): ServizioGoogle {
-        val rest = DriveBackup(app, conDocumenti = true).rest()
+        // Il client si tiene tra un aggiornamento e l'altro: chiedere il token a Play services ogni
+        // volta costa tempo, e quando scade il client lo rinnova da solo.
+        val r = rest ?: DriveBackup(app, conDocumenti = true).rest().also { rest = it }
         val d = synchronized(lock) { dati!! }
-        return ServizioGoogle(rest, CartelleDocs(rest, d.cartella, d.immagini))
+        return ServizioGoogle(r, CartelleDocs(r, d.cartella, d.immagini))
     }
+
+    /** Il client di Google dell'ultimo aggiornamento; si dimentica quando serve di nuovo il consenso. */
+    @Volatile private var rest: DriveRest? = null
+
+    /** I caratteri per impaginare il documento: si caricano una volta sola. */
+    @Volatile private var caratteriDoc: CaratteriDoc? = null
+
+    private fun caratteri(app: Context): CaratteriDoc = caratteriDoc ?: CaratteriDoc(app).also { caratteriDoc = it }
 
     private fun messaggio(e: Exception): String = when {
         e is UnknownHostException || e is java.net.ConnectException ->

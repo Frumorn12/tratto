@@ -30,10 +30,23 @@ internal class SincroniaDisegni(
     /** Cartella per i PNG (nella cache). */
     private val cartella: File,
 ) {
+    /** Quanto e' durato ogni passaggio dell'ultimo [sincronizza], in millisecondi, per il registro. */
+    val tempi = LinkedHashMap<String, Long>()
+    private var segno = 0L
+
+    private fun tempo(passaggio: String) {
+        val ora = System.nanoTime()
+        tempi[passaggio] = (tempi[passaggio] ?: 0L) + (ora - segno) / 1_000_000
+        segno = ora
+    }
+
     suspend fun sincronizza(link: CollegamentoDocs, progresso: suspend (CollegamentoDocs) -> Unit = {}): CollegamentoDocs {
+        tempi.clear()
+        segno = System.nanoTime()
         val (info, pagine) = withContext(Dispatchers.IO) { nota.leggi() }
         var l = link
         var json = docs.completo(l.documento)
+        tempo("lettura")
 
         // Avanzi: intervalli di ancoraggio rimasti da uno script interrotto, blocchi della versione a blocchi.
         val pulizia = pulizia(l, json)
@@ -48,6 +61,7 @@ internal class SincroniaDisegni(
 
         val modello = ModelloDoc.da(json)
         val lette = withContext(Dispatchers.IO) { pagine.map { nota.leggiPagina(it) } }
+        tempo("pagine")
         val voluti = lette.flatMapIndexed { i, letta ->
             letta.blocchi.filterIsInstance<BloccoPagina.Disegno>().map { b ->
                 // Chiave senza pagina: un disegno che il documento sposta su un'altra pagina resta lo stesso.
@@ -55,6 +69,7 @@ internal class SincroniaDisegni(
             }
         }
         val piano = PianoDisegni(modello, impagina(modello), l.disegni, voluti)
+        tempo("piano")
         if (piano.vuoto) {
             return l.copy(disegni = piano.tenuti)
         }
@@ -68,6 +83,7 @@ internal class SincroniaDisegni(
                 r.put(RichiesteDocs.creaIntervallo(nomi[k], p.inizio, p.inizio + 1))
             }
             docs.aggiornaSu(l.documento, r, modello.revisione)
+            tempo("ancore")
         }
 
         // I PNG dei disegni e lo script.
@@ -85,7 +101,9 @@ internal class SincroniaDisegni(
                     file.delete()
                 }
             }
+            tempo("png")
             val ids = script.aggiungiDisegni(l.documento, disegni)
+            tempo("script")
             for ((k, x) in piano.daAggiungere.withIndex()) {
                 val id = ids.getOrNull(k) ?: continue
                 nuovi += DisegnoSalvato(x.first.chiave, x.first.pagina, id, x.first.impronta)
@@ -104,6 +122,7 @@ internal class SincroniaDisegni(
                 val resti = piano.daTogliere.filter { ancora?.has(it) == true }
                 if (resti.isNotEmpty()) docs.aggiorna(l.documento, JSONArray().apply { resti.forEach { put(RichiesteDocs.togliPosizionato(it)) } })
             }
+            tempo("tolti")
         }
         return l
     }
