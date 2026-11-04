@@ -56,10 +56,10 @@ object Pennelli {
         return BrushBehavior(TargetNode(bersaglio, da, a, nodo))
     }
 
-    /** Spessore in funzione della pressione, allargato o ristretto dalla sensibilita'. */
+    /** Spessore in funzione della pressione, allargato o ristretto dalla sensibilita' (vedi [Sensibilita]). */
     private fun pressioneSuSpessore(min: Float, max: Float, s: Float) = comportamento(
         SourceNode.Source.NORMALIZED_PRESSURE, 0f, 1f, TargetNode.Target.SIZE_MULTIPLIER,
-        1f - (1f - min) * s, 1f + (max - 1f) * s,
+        Sensibilita.minimo(min, s), Sensibilita.massimo(max, s),
         EasingFunction.Predefined.EASE_OUT, smorzamento = 0.012f,
     )
 
@@ -96,7 +96,7 @@ object Pennelli {
             tip = BrushTip(
                 behaviors = listOf(
                     comportamento(SourceNode.Source.NORMALIZED_PRESSURE, 0f, 1f, TargetNode.Target.OPACITY_MULTIPLIER,
-                        1f - 0.8f * s.coerceAtMost(1.2f), 1f, EasingFunction.Predefined.EASE_OUT, 0.012f),
+                        Sensibilita.minimo(0.2f, s), 1f, EasingFunction.Predefined.EASE_OUT, 0.012f),
                     pressioneSuSpessore(0.7f, 1.15f, s),
                     comportamento(SourceNode.Source.TILT_IN_RADIANS, 0.35f, 1.2f, TargetNode.Target.SIZE_MULTIPLIER, 1f, 2.6f),
                     comportamento(SourceNode.Source.TILT_IN_RADIANS, 0.35f, 1.2f, TargetNode.Target.OPACITY_MULTIPLIER, 1f, 0.55f),
