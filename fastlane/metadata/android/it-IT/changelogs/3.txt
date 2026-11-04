@@ -1,1 +1,0 @@
-Google Docs rifatto: ogni riga scritta a mano, formula e disegno entra nel documento come immagine trasparente a sé, e le caselle di testo diventano testo vero con il loro formato. Tratto aggiorna solo i suoi blocchi, un secondo dopo la pausa: quello che aggiungi in Google Docs resta dov'è.

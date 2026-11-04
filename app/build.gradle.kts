@@ -26,7 +26,7 @@ android {
         applicationId = "it.frumorn.tratto"
         minSdk = 35
         targetSdk = 36
-        versionCode = 3
+        versionCode = 4
         versionName = "1.2.0"
         ndk { abiFilters += "arm64-v8a" }
     }

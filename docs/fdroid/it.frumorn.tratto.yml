@@ -14,7 +14,7 @@ Repo: https://github.com/Frumorn12/tratto.git
 
 Builds:
   - versionName: 1.2.0
-    versionCode: 3
+    versionCode: 4
     commit: v1.2.0
     subdir: app
     gradle:
@@ -25,4 +25,4 @@ Builds:
 AutoUpdateMode: Version
 UpdateCheckMode: Tags
 CurrentVersion: 1.2.0
-CurrentVersionCode: 3
+CurrentVersionCode: 4
