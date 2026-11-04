@@ -115,6 +115,11 @@ class EditorView(context: Context) : FrameLayout(context), InProgressStrokesFini
     private var trattoInCorso: InProgressStrokeId? = null
     private var pennaInHoverFino = 0L
     private var pennaGiu = false
+    /** Id del puntatore della penna mentre e' giu' (-1 se e' su): la si segue anche col palmo appoggiato. */
+    private var idPenna = -1
+    private val pressione = EventiPenna.PressioneTenuta()
+    /** Registro degli eventi della penna acceso (adb shell setprop log.tag.TrattoPenna DEBUG). */
+    private var registro = false
 
     init {
         addView(foglio, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
@@ -144,6 +149,7 @@ class EditorView(context: Context) : FrameLayout(context), InProgressStrokesFini
     // ---------------------------------------------------------------- tocchi
 
     override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {
+        registra(event)
         if (event.getToolType(0) == MotionEvent.TOOL_TYPE_STYLUS || event.getToolType(0) == MotionEvent.TOOL_TYPE_ERASER) {
             when (event.actionMasked) {
                 MotionEvent.ACTION_HOVER_ENTER, MotionEvent.ACTION_HOVER_MOVE -> {
@@ -171,6 +177,24 @@ class EditorView(context: Context) : FrameLayout(context), InProgressStrokesFini
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        registra(event)
+        val n = event.pointerCount
+        val ids = IntArray(n) { event.getPointerId(it) }
+        val s = EventiPenna.smista(event.actionMasked, event.actionIndex, IntArray(n) { event.getToolType(it) }, ids, idPenna)
+        if (s != null) {
+            if (s == EventiPenna.IGNORA) return true
+            when (s.azione) {
+                MotionEvent.ACTION_DOWN -> {
+                    if (inGestoDita) annullaGestoDita()
+                    // Un gesto rimasto aperto (un'alzata persa, un tratto col dito) si chiude prima.
+                    if (gesto != Gesto.NESSUNO) annullaGestoPenna(event)
+                    pressione.inizia()
+                    idPenna = ids[s.indice]
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> idPenna = -1
+            }
+            return conPenna(event, s)
+        }
         val strumento = event.getToolType(event.actionIndex)
         val stilo = strumento == MotionEvent.TOOL_TYPE_STYLUS || strumento == MotionEvent.TOOL_TYPE_ERASER
         if (stilo || (disegnaConDita && event.pointerCount == 1 && !inGestoDita)) {
@@ -180,6 +204,93 @@ class EditorView(context: Context) : FrameLayout(context), InProgressStrokesFini
         // Appoggio del palmo: con la penna giu' o vicina allo schermo, le dita non contano.
         if (pennaGiu || event.eventTime < pennaInHoverFino) return true
         return tocchiDita(event)
+    }
+
+    /**
+     * Passa a [tocchiPenna] l'evento come lo vede la penna. Se c'e' anche il palmo, se la penna non e'
+     * il primo puntatore o se qualche pressione va corretta ([EventiPenna.PressioneTenuta]), si fa un
+     * evento con la sola penna; altrimenti passa quello vero.
+     */
+    private fun conPenna(e: MotionEvent, s: EventiPenna.Smistamento): Boolean {
+        if (s.indice < 0) {
+            annullaGestoPenna(e)
+            return true
+        }
+        val k = s.indice
+        var correggere = false
+        for (h in 0..e.historySize) {
+            val p = if (h < e.historySize) e.getHistoricalPressure(k, h) else e.getPressure(k)
+            if (pressione.daCorreggere(p)) { correggere = true; break }
+        }
+        if (!correggere && e.pointerCount == 1 && k == 0 && s.azione == e.actionMasked) {
+            for (h in 0..e.historySize) pressione.correggi(if (h < e.historySize) e.getHistoricalPressure(0, h) else e.getPressure(0))
+            return tocchiPenna(e)
+        }
+        val solo = soloPenna(e, k, s.azione)
+        try {
+            return tocchiPenna(solo)
+        } finally {
+            solo.recycle()
+        }
+    }
+
+    private val proprietaPenna = arrayOf(MotionEvent.PointerProperties())
+    private val coordinatePenna = arrayOf(MotionEvent.PointerCoords())
+
+    /** L'evento [e] con il solo puntatore [k], come [azione], punti storici compresi e pressioni corrette. */
+    private fun soloPenna(e: MotionEvent, k: Int, azione: Int): MotionEvent {
+        e.getPointerProperties(k, proprietaPenna[0])
+        val c = coordinatePenna[0]
+        val n = e.historySize
+        fun punto(h: Int) {
+            if (h < n) e.getHistoricalPointerCoords(k, h, c) else e.getPointerCoords(k, c)
+            c.pressure = pressione.correggi(c.pressure)
+        }
+        punto(0)
+        val out = MotionEvent.obtain(
+            e.downTime, if (n > 0) e.getHistoricalEventTime(0) else e.eventTime, azione, 1, proprietaPenna, coordinatePenna,
+            e.metaState, e.buttonState, e.xPrecision, e.yPrecision, e.deviceId, e.edgeFlags, e.source, e.flags,
+        )
+        for (h in 1..n) {
+            punto(h)
+            out.addBatch(if (h < n) e.getHistoricalEventTime(h) else e.eventTime, coordinatePenna, e.metaState)
+        }
+        return out
+    }
+
+    /** Chiude senza salvarlo il gesto della penna rimasto aperto. */
+    private fun annullaGestoPenna(e: MotionEvent) {
+        val c = MotionEvent.obtain(e)
+        c.action = MotionEvent.ACTION_CANCEL
+        try {
+            tocchiPenna(c)
+        } finally {
+            c.recycle()
+        }
+    }
+
+    /** Una riga di registro per ogni evento della penna o delle dita, se il registro e' acceso. */
+    private fun registra(e: MotionEvent) {
+        val a = e.actionMasked
+        if (a == MotionEvent.ACTION_DOWN || a == MotionEvent.ACTION_HOVER_ENTER) registro = android.util.Log.isLoggable(TAG_PENNA, android.util.Log.DEBUG)
+        if (!registro) return
+        val r = StringBuilder(MotionEvent.actionToString(e.action))
+            .append(" t=").append(e.eventTime).append(" storici=").append(e.historySize)
+            .append(" tasti=").append(e.buttonState).append(" flag=0x").append(Integer.toHexString(e.flags))
+        for (i in 0 until e.pointerCount) {
+            val tipo = when (e.getToolType(i)) {
+                MotionEvent.TOOL_TYPE_STYLUS -> "penna"
+                MotionEvent.TOOL_TYPE_ERASER -> "gomma"
+                MotionEvent.TOOL_TYPE_FINGER -> "dito"
+                else -> "tipo${e.getToolType(i)}"
+            }
+            r.append(" [").append(e.getPointerId(i)).append(' ').append(tipo)
+                .append(String.format(java.util.Locale.ROOT, " x=%.0f y=%.0f p=%.3f incl=%.2f orient=%.2f dist=%.2f",
+                    e.getX(i), e.getY(i), e.getPressure(i), e.getAxisValue(MotionEvent.AXIS_TILT, i),
+                    e.getAxisValue(MotionEvent.AXIS_ORIENTATION, i), e.getAxisValue(MotionEvent.AXIS_DISTANCE, i)))
+                .append(']')
+        }
+        android.util.Log.d(TAG_PENNA, r.toString())
     }
 
     private fun gommaAttiva(e: MotionEvent): Boolean =
@@ -1656,6 +1767,8 @@ class EditorView(context: Context) : FrameLayout(context), InProgressStrokesFini
     }
 
     companion object {
+        /** Etichetta del registro degli eventi della penna: adb shell setprop log.tag.TrattoPenna DEBUG */
+        private const val TAG_PENNA = "TrattoPenna"
         private const val NESSUNA = -1
         private const val DENTRO = 10
         private const val SINISTRA = 4
