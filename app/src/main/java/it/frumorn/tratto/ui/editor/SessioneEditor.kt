@@ -8,6 +8,7 @@ import androidx.compose.runtime.setValue
 import it.frumorn.tratto.data.NotaInfo
 import it.frumorn.tratto.data.Sfondo
 import it.frumorn.tratto.editor.Anteprima
+import it.frumorn.tratto.editor.Attesa
 import it.frumorn.tratto.editor.Documento
 import it.frumorn.tratto.editor.EditorView
 import it.frumorn.tratto.editor.StatoStrumenti
@@ -21,13 +22,15 @@ import it.frumorn.tratto.pdf.PdfSfondo
 import it.frumorn.tratto.ui.StatoApp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
  * Una nota aperta: tiene la vista di scrittura, gli strumenti e i salvataggi.
- * I tratti si salvano un secondo dopo l'ultima modifica e comunque alla chiusura.
+ * I tratti si salvano un secondo dopo l'ultima modifica (al massimo due secondi dopo la prima non
+ * salvata, anche scrivendo senza fermarsi) e comunque alla chiusura.
  */
 class SessioneEditor(private val stato: StatoApp, val id: String, context: Context) {
     val vista = EditorView(context)
@@ -72,6 +75,8 @@ class SessioneEditor(private val stato: StatoApp, val id: String, context: Conte
     /** Il documento Google collegato, disegnato sotto l'inchiostro e aggiornato dal vivo (solo versione completa). */
     private var documentoEsterno: it.frumorn.tratto.editor.DocumentoAperto? = null
     private var salvataggio: Job? = null
+    /** Quando e' arrivata la prima modifica non ancora salvata (0 se e' tutto salvato). Solo sul thread principale. */
+    private var nonSalvataDa = 0L
     private var chiusa = false
 
     /** Il risultato proposto accanto a un calcolo non ancora chiuso dall'uguale. */
@@ -432,11 +437,18 @@ class SessioneEditor(private val stato: StatoApp, val id: String, context: Conte
 
     fun programmaSalvataggio() {
         salvataggio?.cancel()
+        val ora = android.os.SystemClock.elapsedRealtime()
+        if (nonSalvataDa == 0L) nonSalvataDa = ora
+        val attesa = Attesa.ritardo(nonSalvataDa, ora, PAUSA_SALVATAGGIO_MS, MASSIMO_SALVATAGGIO_MS)
         salvataggio = stato.scope.launch {
-            delay(1000)
-            withContext(Dispatchers.IO) { documento?.salva() }
-            // Se la nota e' collegata a Google Docs, il documento si aggiorna qualche secondo dopo.
-            GoogleDocs.modificata(contesto, id)
+            delay(attesa)
+            nonSalvataDa = 0L
+            // Una volta partito il salvataggio arriva fino in fondo, anche se nel frattempo si scrive:
+            // cosi' il documento Google collegato riceve le novita' anche da chi non si ferma mai.
+            withContext(NonCancellable) {
+                withContext(Dispatchers.IO) { documento?.salva() }
+                GoogleDocs.modificata(contesto, id)
+            }
         }
     }
 
@@ -449,6 +461,7 @@ class SessioneEditor(private val stato: StatoApp, val id: String, context: Conte
         documentoEsterno?.chiudi()
         suggerimento.nascondi()
         salvataggio?.cancel()
+        nonSalvataDa = 0L
         val d = documento
         val p = pdf
         stato.scope.launch {
@@ -472,6 +485,7 @@ class SessioneEditor(private val stato: StatoApp, val id: String, context: Conte
     suspend fun salvaEAttendi(): NotaInfo? {
         vista.chiudiTesto()
         salvataggio?.cancel()
+        nonSalvataDa = 0L
         val d = documento ?: return null
         withContext(Dispatchers.IO) { d.salva() }
         return stato.archivio.note.value.find { it.id == id }
@@ -490,11 +504,19 @@ class SessioneEditor(private val stato: StatoApp, val id: String, context: Conte
         documentoEsterno?.pausa()
         vista.chiudiTesto()
         salvataggio?.cancel()
+        nonSalvataDa = 0L
         val d = documento ?: return
         stato.scope.launch(Dispatchers.IO) {
             val cambiata = d.modificato
             d.salva()
             GoogleDocs.finisciInBackground(contesto, id, cambiata)
         }
+    }
+
+    private companion object {
+        /** Pausa dopo l'ultima modifica... */
+        const val PAUSA_SALVATAGGIO_MS = 1000L
+        /** ...ma mai piu' di cosi' dalla prima non salvata. */
+        const val MASSIMO_SALVATAGGIO_MS = 2000L
     }
 }
