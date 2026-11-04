@@ -9,6 +9,7 @@ import it.frumorn.tratto.backup.DriveBackup
 import it.frumorn.tratto.data.scriviAtomico
 import it.frumorn.tratto.data.TestoRicco
 import it.frumorn.tratto.data.UNITA_PER_PUNTO
+import it.frumorn.tratto.editor.Attesa
 import it.frumorn.tratto.editor.DocumentoAperto
 import it.frumorn.tratto.editor.ModificaDocumento
 import it.frumorn.tratto.editor.ParagrafoDocumento
@@ -16,8 +17,6 @@ import it.frumorn.tratto.editor.SpostamentoTratti
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONArray
 import java.util.UUID
@@ -27,6 +26,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.plus
 import org.json.JSONObject
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
@@ -249,18 +249,21 @@ internal class DocumentoVivo(
 
     /**
      * Un paragrafo del documento modificato da Tratto. Un intervallo con nome lo segue mentre altri
-     * scrivono; alla prima pausa (mezzo secondo) si rilegge il suo testo e si manda solo la parte
-     * diversa, con la revisione appena letta: Google unisce le modifiche arrivate nel frattempo.
+     * scrivono; alla prima pausa (mezzo secondo, e comunque ogni secondo scrivendo di fila) si rilegge
+     * il suo testo e si manda solo la parte diversa, con la revisione appena letta: Google unisce le
+     * modifiche arrivate nel frattempo. Un invio partito arriva in fondo; ne aspetta al massimo uno.
      */
     private inner class SessioneTesto(private val id: String, private val rif: PagineDoc.Rif, iniziale: TestoRicco) : ModificaDocumento {
         private val nome = "$PREFISSO_TESTO${UUID.randomUUID()}"
         private val pronta = CompletableDeferred<Boolean>()
-        private val mutex = Mutex()
+        private val turni = Turni(scope + Dispatchers.IO)
         @Volatile private var ultimo = iniziale
+
+        /** Quando e' cambiato per primo il testo non ancora mandato (0 se e' tutto mandato). */
+        @Volatile private var nonMandatoDa = 0L
 
         /** Il formato gia' nel documento: si manda solo quando cambia. */
         private var formatoInviato = TestoCondiviso.firma(iniziale)
-        private var attesa: Job? = null
 
         suspend fun avvia() {
             try {
@@ -285,18 +288,16 @@ internal class DocumentoVivo(
 
         override fun cambiato(t: TestoRicco) {
             ultimo = t
-            attesa?.cancel()
-            attesa = scope.launch(Dispatchers.IO) {
-                delay(ATTESA_TESTO_MS)
-                invia()
-            }
+            val ora = SystemClock.elapsedRealtime()
+            if (nonMandatoDa == 0L) nonMandatoDa = ora
+            turni.programma(TURNO, Attesa.ritardo(nonMandatoDa, ora, ATTESA_TESTO_MS, MASSIMO_TESTO_MS)) { inviaNelTurno() }
         }
 
         override fun fine(t: TestoRicco) {
             ultimo = t
-            attesa?.cancel()
+            turni.annulla(TURNO)
             scope.launch(Dispatchers.IO) {
-                invia()
+                turni.esegui { inviaNelTurno() }
                 chiudi()
                 if (inModifica === this@SessioneTesto) inModifica = null
                 // Il paragrafo torna a disegnarsi dal documento appena arriva la revisione nuova.
@@ -305,13 +306,14 @@ internal class DocumentoVivo(
             }
         }
 
-        /** Manda al documento la differenza tra il suo testo di adesso e [ultimo]. */
-        private suspend fun invia() = mutex.withLock {
+        /** Manda al documento la differenza tra il suo testo di adesso e [ultimo]. Solo al suo turno. */
+        private suspend fun inviaNelTurno() {
             try {
-                if (!pronta.await()) return@withLock
-                val d = docs ?: return@withLock
+                if (!pronta.await()) return
+                val d = docs ?: return
+                nonMandatoDa = 0L
                 val json = d.testo(id)
-                val pezzo = TestoCondiviso.leggi(json, nome) ?: return@withLock
+                val pezzo = TestoCondiviso.leggi(json, nome) ?: return
                 val t = ultimo
                 val r = TestoCondiviso.richieste(pezzo.inizio, pezzo.testo, t.testoSemplice)
                 // Il formato (grassetto, colori, stili dei paragrafi...) solo se e' cambiato sul tablet.
@@ -320,7 +322,7 @@ internal class DocumentoVivo(
                     val f = TestoCondiviso.formato(pezzo.inizio, t, UNITA_PER_PUNTO / (mostrato?.u ?: UNITA_PER_PUNTO).toDouble())
                     for (k in 0 until f.length()) r.put(f.getJSONObject(k))
                 }
-                if (r.length() == 0) return@withLock
+                if (r.length() == 0) return
                 d.aggiornaSu(id, r, json.optString("revisionId"))
                 formatoInviato = firma
                 sveglia.trySend(Unit)
@@ -369,8 +371,12 @@ internal class DocumentoVivo(
         const val TAG = "DocumentoVivo"
         const val PREFISSO_TESTO = "tratto-testo-"
 
-        /** Pausa dopo cui il testo scritto va al documento. */
+        /** Pausa dopo cui il testo scritto va al documento... */
         const val ATTESA_TESTO_MS = 500L
+
+        /** ...ma scrivendo di fila al massimo dopo cosi' dal primo cambio non mandato. */
+        const val MASSIMO_TESTO_MS = 1000L
+        const val TURNO = "testo"
         const val ATTESA_VIVO_MS = 1000L
         const val ATTESA_FERMO_MS = 3000L
 
