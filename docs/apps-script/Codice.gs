@@ -22,10 +22,7 @@ function aggiungiDisegni(documentoId, disegni, togli) {
   var ids = [];
   for (var i = 0; i < disegni.length; i++) {
     var d = disegni[i];
-    var intervalli = doc.getNamedRanges(d.ancora);
-    if (intervalli.length === 0) { ids.push(null); continue; }
-    var paragrafo = paragrafoDi(intervalli[0].getRange().getRangeElements()[0].getElement());
-    for (var k = 0; k < intervalli.length; k++) intervalli[k].remove();
+    var paragrafo = paragrafoDellIntervallo(doc, d.ancora);
     if (paragrafo === null) { ids.push(null); continue; }
     var png = Utilities.newBlob(Utilities.base64Decode(d.png), 'image/png', 'tratto.png');
     var img = paragrafo.addPositionedImage(png)
@@ -39,7 +36,11 @@ function aggiungiDisegni(documentoId, disegni, togli) {
   var tolti = [];
   if (togli) {
     for (var j = 0; j < togli.length; j++) {
-      if (togliImmagine(doc, togli[j])) tolti.push(togli[j].id);
+      // Un errore su un disegno da togliere non deve far perdere gli id di quelli appena messi:
+      // quello che resta lo toglie Tratto con l'API di Docs.
+      try {
+        if (togliImmagine(doc, togli[j])) tolti.push(togli[j].id);
+      } catch (e) {}
     }
   }
   doc.saveAndClose();
@@ -51,12 +52,7 @@ function aggiungiDisegni(documentoId, disegni, togli) {
  * paragrafo del corpo. Vero se l'ha tolta.
  */
 function togliImmagine(doc, t) {
-  var paragrafo = null;
-  if (t.ancora) {
-    var intervalli = doc.getNamedRanges(t.ancora);
-    if (intervalli.length > 0) paragrafo = paragrafoDi(intervalli[0].getRange().getRangeElements()[0].getElement());
-    for (var k = 0; k < intervalli.length; k++) intervalli[k].remove();
-  }
+  var paragrafo = t.ancora ? paragrafoDellIntervallo(doc, t.ancora) : null;
   if (paragrafo !== null && togliDa(paragrafo, t.id)) return true;
   var paragrafi = doc.getBody().getParagraphs();
   for (var i = 0; i < paragrafi.length; i++) {
@@ -72,6 +68,23 @@ function togliDa(paragrafo, id) {
   } catch (e) {
     return false;
   }
+}
+
+/**
+ * Il paragrafo dell'intervallo con nome [nome] (null se non c'e' piu' o e' vuoto). Gli intervalli con
+ * quel nome si tolgono comunque: erano solo un segno messo da Tratto.
+ */
+function paragrafoDellIntervallo(doc, nome) {
+  var intervalli = doc.getNamedRanges(nome);
+  var paragrafo = null;
+  try {
+    var elementi = intervalli.length > 0 ? intervalli[0].getRange().getRangeElements() : [];
+    if (elementi.length > 0) paragrafo = paragrafoDi(elementi[0].getElement());
+  } catch (e) {
+    paragrafo = null;
+  }
+  for (var k = 0; k < intervalli.length; k++) intervalli[k].remove();
+  return paragrafo;
 }
 
 /** Il paragrafo (o la voce di elenco) che contiene [el]. */

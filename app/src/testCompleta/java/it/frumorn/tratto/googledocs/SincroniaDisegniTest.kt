@@ -26,7 +26,7 @@ import java.nio.file.Files
 class SincroniaDisegniTest {
 
     /** Google finto: tre paragrafi fissi, oggetti posizionati, intervalli con nome e lo script. */
-    private class GoogleFinto(private val scriptNuovo: Boolean) : ApiDocs, ScriptDisegni {
+    private class GoogleFinto(private val scriptNuovo: Boolean, private val trovaDaTogliere: Boolean = true) : ApiDocs, ScriptDisegni {
         private val testi = listOf("uno\n", "due\n", "tre\n")
         class Posto(val paragrafo: Int, val sinistra: Double, val alto: Double, val larghezza: Double, val altezza: Double)
 
@@ -111,11 +111,13 @@ class SincroniaDisegniTest {
             revisione++
             // Lo script vecchio non conosce il terzo parametro e restituisce solo gli id.
             if (!scriptNuovo) return ScriptDocs.Esito(ids, null)
+            val tolti = HashSet<String>()
             for (t in togli) {
                 t.ancora?.let { n -> intervalli.removeAll { it.first == n } }
-                oggetti.remove(t.oggetto)
+                // Lo script vero puo' non trovare l'immagine: allora non la mette tra le tolte.
+                if (trovaDaTogliere && oggetti.remove(t.oggetto) != null) tolti += t.oggetto
             }
-            return ScriptDocs.Esito(ids, togli.mapTo(HashSet()) { it.oggetto })
+            return ScriptDocs.Esito(ids, tolti)
         }
 
         /** Gli intervalli rimasti nel documento. */
@@ -156,6 +158,12 @@ class SincroniaDisegniTest {
 
     private val cartella = Files.createTempDirectory("disegni").toFile()
     private val nota = NotaFinta()
+
+    @org.junit.Before
+    fun scriptDaCapo() {
+        // Ogni prova parte senza ricordare lo script di quella prima.
+        SincroniaDisegni.scriptToglie = true
+    }
 
     /** Tre paragrafi sulla prima pagina (cime 121, 200, 300); 1 punto = 2 unita', margine di 72 punti. */
     private fun sincronia(google: GoogleFinto) = SincroniaDisegni(
@@ -202,6 +210,35 @@ class SincroniaDisegniTest {
         assertEquals(1, richieste(google, "deletePositionedObject"))
         assertEquals(1, google.oggetti.size)
         assertEquals(google.oggetti.keys.single(), link.disegni.single().oggetto)
+    }
+
+    @Test
+    fun loScriptNonTrovaIlVecchioETrattoLoToglieDaSe() = runBlocking {
+        val google = GoogleFinto(scriptNuovo = true, trovaDaTogliere = false)
+        val s = sincronia(google)
+        nota.tratto(250f, 244f, 400f)
+        var link = s.sincronizza(CollegamentoDocs("doc"))
+        nota.tratto(250f, 410f, 500f)
+        link = s.sincronizza(link)
+
+        assertEquals(1, richieste(google, "deletePositionedObject"))
+        assertEquals(1, google.oggetti.size)
+        assertEquals(google.oggetti.keys.single(), link.disegni.single().oggetto)
+        assertTrue(SincroniaDisegni.scriptToglie)
+    }
+
+    @Test
+    fun loScriptVecchioSeLoRicordaFinoAllAggiornamento() = runBlocking {
+        val vecchio = GoogleFinto(scriptNuovo = false)
+        val s = sincronia(vecchio)
+        nota.tratto(250f, 244f, 400f)
+        s.sincronizza(CollegamentoDocs("doc"))
+        assertEquals(false, SincroniaDisegni.scriptToglie)
+        // Lo script si aggiorna su Google: alla prima chiamata Tratto se ne accorge.
+        val nuovo = GoogleFinto(scriptNuovo = true)
+        val s2 = sincronia(nuovo)
+        s2.sincronizza(CollegamentoDocs("doc"))
+        assertTrue(SincroniaDisegni.scriptToglie)
     }
 
     @Test

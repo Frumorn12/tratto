@@ -117,6 +117,8 @@ class EditorView(context: Context) : FrameLayout(context), InProgressStrokesFini
     private var pennaGiu = false
     /** Id del puntatore della penna mentre e' giu' (-1 se e' su): la si segue anche col palmo appoggiato. */
     private var idPenna = -1
+    /** Quando e' scesa la penna: l'inizio degli eventi fatti per lei (con il palmo giu' il gesto e' cominciato prima). */
+    private var inizioPenna = 0L
     private val pressione = EventiPenna.PressioneTenuta()
     /** Registro degli eventi della penna acceso (adb shell setprop log.tag.TrattoPenna DEBUG). */
     private var registro = false
@@ -171,6 +173,11 @@ class EditorView(context: Context) : FrameLayout(context), InProgressStrokesFini
 
     override fun onInterceptTouchEvent(ev: MotionEvent): Boolean {
         if (ev.actionMasked == MotionEvent.ACTION_DOWN) gestoAlCampo = dentroCampo(ev.x, ev.y)
+        // Il palmo appoggiato sulla casella di testo non tiene ferma la penna che scende fuori.
+        if (gestoAlCampo && ev.actionMasked == MotionEvent.ACTION_POINTER_DOWN) {
+            val i = ev.actionIndex
+            if (EventiPenna.penna(ev.getToolType(i)) && !dentroCampo(ev.getX(i), ev.getY(i))) gestoAlCampo = false
+        }
         val alCampo = gestoAlCampo
         if (ev.actionMasked == MotionEvent.ACTION_UP || ev.actionMasked == MotionEvent.ACTION_CANCEL) gestoAlCampo = false
         return !alCampo
@@ -178,6 +185,8 @@ class EditorView(context: Context) : FrameLayout(context), InProgressStrokesFini
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
         registra(event)
+        // Un gesto nuovo: se si credeva la penna ancora giu', la sua alzata e' andata persa.
+        if (event.actionMasked == MotionEvent.ACTION_DOWN) idPenna = -1
         val n = event.pointerCount
         val ids = IntArray(n) { event.getPointerId(it) }
         val s = EventiPenna.smista(event.actionMasked, event.actionIndex, IntArray(n) { event.getToolType(it) }, ids, idPenna)
@@ -190,6 +199,7 @@ class EditorView(context: Context) : FrameLayout(context), InProgressStrokesFini
                     if (gesto != Gesto.NESSUNO) annullaGestoPenna(event)
                     pressione.inizia()
                     idPenna = ids[s.indice]
+                    inizioPenna = if (event.actionMasked == MotionEvent.ACTION_DOWN) event.downTime else event.eventTime
                 }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> idPenna = -1
             }
@@ -248,7 +258,7 @@ class EditorView(context: Context) : FrameLayout(context), InProgressStrokesFini
         }
         punto(0)
         val out = MotionEvent.obtain(
-            e.downTime, if (n > 0) e.getHistoricalEventTime(0) else e.eventTime, azione, 1, proprietaPenna, coordinatePenna,
+            inizioPenna, if (n > 0) e.getHistoricalEventTime(0) else e.eventTime, azione, 1, proprietaPenna, coordinatePenna,
             e.metaState, e.buttonState, e.xPrecision, e.yPrecision, e.deviceId, e.edgeFlags, e.source, e.flags,
         )
         for (h in 1..n) {

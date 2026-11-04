@@ -7,6 +7,7 @@ import it.frumorn.tratto.TrattoApp
 import it.frumorn.tratto.backup.DriveBackup
 import it.frumorn.tratto.backup.DriveRest
 import it.frumorn.tratto.backup.ErroreDrive
+import it.frumorn.tratto.backup.ImpostazioniBackup
 import it.frumorn.tratto.backup.temporaneo
 import it.frumorn.tratto.data.scriviAtomico
 import it.frumorn.tratto.editor.DocumentoAperto
@@ -304,13 +305,17 @@ object GoogleDocs {
     private suspend fun servizio(app: Context): ServizioGoogle {
         // Il client si tiene tra un aggiornamento e l'altro: chiedere il token a Play services ogni
         // volta costa tempo, e quando scade il client lo rinnova da solo.
-        val r = rest ?: DriveBackup(app, conDocumenti = true).rest().also { rest = it }
+        // Se nel frattempo e' cambiato l'account collegato, il client vecchio non serve piu'.
+        val account = ImpostazioniBackup.stato(app).value.account
+        if (account != restAccount) rest = null
+        val r = rest ?: DriveBackup(app, conDocumenti = true).rest().also { rest = it; restAccount = account }
         val d = synchronized(lock) { dati!! }
         return ServizioGoogle(r, CartelleDocs(r, d.cartella, d.immagini))
     }
 
     /** Il client di Google dell'ultimo aggiornamento; si dimentica quando serve di nuovo il consenso. */
     @Volatile private var rest: DriveRest? = null
+    @Volatile private var restAccount: String? = null
 
     /** I caratteri per impaginare il documento: si caricano una volta sola. */
     @Volatile private var caratteriDoc: CaratteriDoc? = null
