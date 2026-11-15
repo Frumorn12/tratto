@@ -628,7 +628,7 @@ private fun Ricerca(stato: AppState) {
 private fun Filtri(filtre: Filtro, note: List<NotaInfo>, onChange: (Filtro) -> Unit) {
     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(bottom = 16.dp)) {
         val aLaRacine = note.count { it.cartellaId == null }
-        item { Chip(testo(R.string.all_alaracine), filtre == Filtro.Tutte, null) { onChange(Filtro.Tutte) } }
+        item { Chip(testo(R.string.all_alaracine, aLaRacine), filtre == Filtro.Tutte, null) { onChange(Filtro.Tutte) } }
         item { Chip(testo(R.string.favorites), filtre == Filtro.Preferite, null, icona = R.drawable.ic_star) { onChange(Filtro.Preferite) } }
     }
 }
@@ -837,7 +837,7 @@ private fun anteprima(stato: AppState, n: NotaInfo): ImageBitmap? {
 
 fun titoloDi(n: NotaInfo): String = n.titolo.ifBlank {
     val data = DateTimeFormatter.ofPattern("d MMM", Locale.getDefault()).format(Instant.ofEpochMilli(n.creata).atZone(ZoneId.systemDefault()))
-    testoOra(R.string.note_data)
+    testoOra(R.string.note_data, data)
 }
 
 fun quando(ms: Long): String {
@@ -845,8 +845,8 @@ fun quando(ms: Long): String {
     val oggi = LocalDate.now()
     val ora = DateTimeFormatter.ofPattern("HH:mm").format(t)
     return when (t.toLocalDate()) {
-        oggi -> testoOra(R.string.today_ora)
-        oggi.minusDays(1) -> testoOra(R.string.yesterday_ora)
+        oggi -> testoOra(R.string.today_ora, ora)
+        oggi.minusDays(1) -> testoOra(R.string.yesterday_ora, ora)
         else -> DateTimeFormatter.ofPattern(if (t.year == oggi.year) "d MMM" else "d MMM yyyy", Locale.getDefault()).format(t)
     }
 }

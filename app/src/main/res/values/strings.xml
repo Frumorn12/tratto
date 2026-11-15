@@ -6,7 +6,7 @@
     <string name="servizio_nota_rapida">Tratto quick note</string>
     <string name="servizio_nota_rapida_riassunto">A sheet for writing on top of any app</string>
     <string name="servizio_nota_rapida_descrizione">Only used to open Tratto\'s quick note when you tap the Accessibility button or use the volume-key shortcut. It does not read the screen, does not watch what you write or touch, and does not collect or send any data.</string>
-    <string name="compte_notes">$compte notes</string>
+    <string name="compte_notes">%1$d notes</string>
     <string name="notes">%1$s notes</string>
     <string name="notes_imported_at_the_root_one_per_page">%1$s notes imported at the root (one per page).</string>
     <string name="selected">%1$s selected</string>
@@ -18,7 +18,7 @@
     <string name="align_left">Align left</string>
     <string name="align_right">Align right</string>
     <string name="alignment">Alignment</string>
-    <string name="all_alaracine">All · $aLaRacine</string>
+    <string name="all_alaracine">All · %1$d</string>
     <string name="allow">Allow</string>
     <string name="also_write_with_your_finger">Also write with your finger</string>
     <string name="appearance">Appearance</string>
@@ -177,7 +177,7 @@
     <string name="not_connected_tratto_only_sees_the_files_it_crea">Not connected. Tratto only sees the files it creates on Drive, in the “Tratto” folder.</string>
     <string name="note_linked_to_google_docs_the_document_updates">Note linked to Google Docs: the document updates while you write</string>
     <string name="note_unlinked_the_document_stays_on_google_drive">Note unlinked. The document stays on Google Drive.</string>
-    <string name="note_data">Note, $data</string>
+    <string name="note_data">Note, %1$s</string>
     <string name="notes_restored_from_drive">Notes restored from Drive</string>
     <string name="nothing">Nothing</string>
     <string name="numbered_list">Numbered list</string>
@@ -248,7 +248,7 @@
     <string name="this_folder_cannot_be_used_for_automatic_backup">This folder cannot be used for automatic backup: choose another one.</string>
     <string name="this_notebook_is_empty">This notebook is empty</string>
     <string name="title">Title</string>
-    <string name="today_ora">Today, $ora</string>
+    <string name="today_ora">Today, %1$s</string>
     <string name="transcribe">Transcribe</string>
     <string name="transcription">Transcription</string>
     <string name="tratto_can_no_longer_write_in_the_backup_folder">Tratto can no longer write in the backup folder: choose it again.</string>
@@ -267,7 +267,7 @@
     <string name="wi_fi_only">Wi-Fi only</string>
     <string name="with_automatic_brightness_the_shadow_of_your_han">With automatic brightness, the shadow of your hand on the sensor no longer changes the screen</string>
     <string name="write_an_expression_and_then_tratto_writes_the_r">Write an expression and then « = »: Tratto writes the result beside it. Uses handwriting recognition (about 14 MB, downloaded on the first transcription)</string>
-    <string name="yesterday_ora">Yesterday, $ora</string>
+    <string name="yesterday_ora">Yesterday, %1$s</string>
     <string name="you_can_correct_the_text_before_using_it">You can correct the text before using it</string>
     <string name="your_notes">Your notes</string>
     <string name="cursive_2">cursive</string>

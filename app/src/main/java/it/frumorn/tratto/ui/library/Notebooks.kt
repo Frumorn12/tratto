@@ -303,7 +303,7 @@ private fun CouvertureChapitre(
                         when (compte) {
                             0 -> testo(R.string.empty)
                             1 -> testo(R.string.n_1_note)
-                            else -> testo(R.string.compte_notes)
+                            else -> testo(R.string.compte_notes, compte)
                         },
                         style = MaterialTheme.typography.labelMedium,
                         color = Color(0xFF271E52).copy(alpha = 0.75f),
@@ -391,7 +391,7 @@ private fun CouvertureLivre(
                         when (compte) {
                             0 -> testo(R.string.empty)
                             1 -> testo(R.string.n_1_note)
-                            else -> testo(R.string.compte_notes)
+                            else -> testo(R.string.compte_notes, compte)
                         },
                         style = MaterialTheme.typography.labelMedium,
                         color = testoSurCouverture,
@@ -508,7 +508,7 @@ private fun ColonneDepot(
                         when (compte) {
                             0 -> testo(R.string.empty)
                             1 -> testo(R.string.n_1_note)
-                            else -> testo(R.string.compte_notes)
+                            else -> testo(R.string.compte_notes, compte)
                         },
                         style = MaterialTheme.typography.labelMedium,
                         color = if (colore.luminance() > 0.62f) Color(0xFF271E52) else Color.White,
@@ -568,7 +568,7 @@ internal fun BarreDepot(
                             when (compte) {
                                 0 -> testo(R.string.empty)
                                 1 -> testo(R.string.n_1_note)
-                                else -> testo(R.string.compte_notes)
+                                else -> testo(R.string.compte_notes, compte)
                             },
                             style = MaterialTheme.typography.labelMedium,
                             color = if (Color(c.colore).luminance() > 0.62f) Color(0xFF271E52) else Color.White,
