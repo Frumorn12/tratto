@@ -1,6 +1,7 @@
 package it.frumorn.tratto.backup
 
 import android.app.Activity
+import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -10,6 +11,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.platform.LocalContext
+import it.frumorn.tratto.R
+import it.frumorn.tratto.ui.testoOra
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import java.io.IOException
@@ -37,12 +40,43 @@ fun rememberAccessoDrive(conDocumenti: Boolean = false, alTermine: (Result<Unit>
         }
     }
 
+    /**
+     * Dopo il selettore account / schermata di consenso, a volte arriva RESULT_CANCELED
+     * anche se Google ha registrato la scelta. Si ritenta [autorizza] senza UI:
+     * se non serve più risoluzione, la connessione e' OK.
+     */
+    suspend fun dopoSchermataConsenso(data: Intent?) {
+        if (data != null) {
+            try {
+                drive.completaAutorizzazione(data)
+                esito(Result.success(Unit))
+                return
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // Si ritenta sotto.
+            }
+        }
+        when (val r = drive.autorizza()) {
+            is DriveBackup.Risultato.Autorizzato -> esito(Result.success(Unit))
+            is DriveBackup.Risultato.ServeConsenso ->
+                esito(Result.failure(IOException(testoOra(R.string.google_access_cancelled))))
+        }
+    }
+
     val lanciatore = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { r ->
-        val data = r.data
-        if (r.resultCode == Activity.RESULT_OK && data != null) {
-            scope.launch { prova { drive.completaAutorizzazione(data) } }
-        } else {
-            esito(Result.failure(IOException("Connexion à Google Drive annulée.")))
+        scope.launch {
+            try {
+                if (r.resultCode == Activity.RESULT_OK && r.data != null) {
+                    prova { drive.completaAutorizzazione(r.data!!) }
+                } else {
+                    dopoSchermataConsenso(r.data)
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                esito(Result.failure(e))
+            }
         }
     }
     return remember(drive, lanciatore) {
