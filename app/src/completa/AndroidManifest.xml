@@ -7,7 +7,7 @@
     <uses-permission android:name="android.permission.INTERNET" />
 
     <application>
-        <!-- ML Kit non si inizializza a ogni avvio: lo fa Trascrittore al primo uso. -->
+        <!-- ML Kit non si inizializza a ogni avvio: lo fa Transcriber al primo uso. -->
         <provider
             android:name="com.google.mlkit.common.internal.MlKitInitProvider"
             android:authorities="${applicationId}.mlkitinitprovider"

@@ -217,7 +217,7 @@ internal class DriveRest(private var token: String, private val rinnova: suspend
                     c.setFixedLengthStreamingMode(corpo.size)
                     c.outputStream.use { it.write(corpo) }
                     controlla(c)
-                    c.getHeaderField("Location") ?: throw IOException("Google Drive non ha aperto la sessione di caricamento.")
+                    c.getHeaderField("Location") ?: throw IOException("Google Drive n'a pas ouvert la session d'envoi.")
                 } finally {
                     c.disconnect()
                 }
@@ -225,7 +225,7 @@ internal class DriveRest(private var token: String, private val rinnova: suspend
             try {
                 return inviaBlocchi(sessione, file)
             } catch (e: SessioneScaduta) {
-                if (++sessioni > 1) throw IOException("Caricamento su Google Drive interrotto: si riproverà.", e)
+                if (++sessioni > 1) throw IOException("Envoi vers Google Drive interrompu : nouvel essai.", e)
             }
         }
     }
@@ -276,7 +276,7 @@ internal class DriveRest(private var token: String, private val rinnova: suspend
                 var resto = n
                 while (resto > 0) {
                     val r = raf.read(buf, 0, min(buf.size.toLong(), resto).toInt())
-                    if (r < 0) throw IOException("Il file da caricare si è accorciato")
+                    if (r < 0) throw IOException("Le fichier à envoyer a été raccourci")
                     o.write(buf, 0, r)
                     resto -= r
                 }
@@ -391,14 +391,14 @@ internal class DriveRest(private var token: String, private val rinnova: suspend
         val docs = c.url.host == HOST_DOCS
         val servizio = if (docs) "Google Docs" else "Google Drive"
         val messaggio = when {
-            motivo == "storageQuotaExceeded" -> "Lo spazio su Google Drive è esaurito."
+            motivo == "storageQuotaExceeded" -> "L'espace sur Google Drive est plein."
             motivo == "accessNotConfigured" || "SERVICE_DISABLED" in corpo ->
-                "L'API di $servizio non è abilitata nel progetto Google Cloud di Tratto."
-            codice == 401 -> "L'accesso a $servizio è scaduto."
-            codice == 403 -> "$servizio ha rifiutato l'operazione" + (dettaglio?.let { ": $it" } ?: ".")
-            codice == 404 -> if (docs) "Documento non trovato su Google Docs." else "File non trovato su Google Drive."
-            codice >= 500 -> "$servizio non risponde (errore $codice)."
-            else -> "Errore di $servizio ($codice)" + (dettaglio?.let { ": $it" } ?: ".")
+                "L'API $servizio n'est pas activée dans le projet Google Cloud de Tratto."
+            codice == 401 -> "L'accès à $servizio a expiré."
+            codice == 403 -> "$servizio a refusé l'opération" + (dettaglio?.let { " : $it" } ?: ".")
+            codice == 404 -> if (docs) "Document introuvable sur Google Docs." else "Fichier introuvable sur Google Drive."
+            codice >= 500 -> "$servizio ne répond pas (erreur $codice)."
+            else -> "Erreur $servizio ($codice)" + (dettaglio?.let { " : $it" } ?: ".")
         }
         return ErroreDrive(codice, motivo, messaggio, dettaglio)
     }

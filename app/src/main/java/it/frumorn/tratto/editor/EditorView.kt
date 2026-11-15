@@ -29,14 +29,14 @@ import androidx.ink.strokes.StrokeInput
 import androidx.ink.strokes.MutableStrokeInputBatch
 import androidx.ink.strokes.InProgressStroke
 import androidx.input.motionprediction.MotionEventPredictor
-import it.frumorn.tratto.data.Archivio
+import it.frumorn.tratto.data.Archive
 import it.frumorn.tratto.data.Immagine
 import it.frumorn.tratto.data.Oggetto
 import it.frumorn.tratto.data.Penna
 import it.frumorn.tratto.data.Testo
 import it.frumorn.tratto.data.TestoRicco
 import it.frumorn.tratto.data.Tratto
-import it.frumorn.tratto.ink.Pennelli
+import it.frumorn.tratto.ink.Brushes
 import kotlin.math.abs
 import kotlin.math.hypot
 import kotlin.math.max
@@ -47,7 +47,8 @@ import kotlin.math.roundToInt
  * La superficie di scrittura.
  *
  *  - penna: inchiostro a bassa latenza con [InProgressStrokesView] (front buffer) e predizione;
- *  - tasto della penna tenuto premuto, o punta gomma: gomma temporanea;
+ *  - tasto della penna tenuto premuto, o punta gomma: gomma temporanea, anche a metà tratto;
+ *  - tasto tenuto premuto a mezz'aria: menu degli strumenti sotto la punta;
  *  - dita: scorrimento, lancio, pizzico per lo zoom, doppio tocco per tornare alla larghezza pagina;
  *  - con la penna vicina allo schermo le dita vengono ignorate (appoggio del palmo);
  *  - oggetti (immagini e caselle di testo): un tocco del dito (o della penna con il lazo) li seleziona,
@@ -57,11 +58,11 @@ import kotlin.math.roundToInt
 @SuppressLint("ViewConstructor", "ClickableViewAccessibility")
 class EditorView(context: Context) : FrameLayout(context), InProgressStrokesFinishedListener {
 
-    val foglio = FoglioView(context)
+    val foglio = SheetView(context)
     private val sopra = Sovrapposizione(context)
     val inchiostro = InProgressStrokesView(context)
 
-    var documento: Documento? = null
+    var documento: Document? = null
         set(v) {
             chiudiTesto()
             field = v; foglio.documento = v; selezione = null; selezioneOggetto = null
@@ -104,8 +105,10 @@ class EditorView(context: Context) : FrameLayout(context), InProgressStrokesFini
     var alCambioOggetto: ((Oggetto?) -> Unit)? = null
     /** Pressione lunga del dito su un punto della pagina senza oggetti (coordinate dello schermo). Senza, niente menu. */
     var alPressioneLunga: ((Float, Float) -> Unit)? = null
+    /** Tasto dello stilo tenuto premuto a mezz'aria: menu degli strumenti sotto la punta. */
+    var alMenuStilo: ((Float, Float) -> Unit)? = null
     /** Si apre (il campo) o si chiude (null) la modifica di una casella di testo. */
-    var alCampoTesto: ((CampoTesto?) -> Unit)? = null
+    var alCampoTesto: ((TextField?) -> Unit)? = null
 
     private val densita = resources.displayMetrics.density
     private val soglia = ViewConfiguration.get(context).scaledTouchSlop.toFloat()
@@ -119,9 +122,19 @@ class EditorView(context: Context) : FrameLayout(context), InProgressStrokesFini
     private var idPenna = -1
     /** Quando e' scesa la penna: l'inizio degli eventi fatti per lei (con il palmo giu' il gesto e' cominciato prima). */
     private var inizioPenna = 0L
-    private val pressione = EventiPenna.PressioneTenuta()
+    private val pressione = PenEvents.PressioneTenuta()
     /** Registro degli eventi della penna acceso (adb shell setprop log.tag.TrattoPenna DEBUG). */
     private var registro = false
+    /** La gomma di questo gesto viene dal tasto, non dallo strumento scelto: al rilascio si torna a scrivere. */
+    private var gommaDaTasto = false
+    private var tastoInAria = false
+    private var hoverX = 0f
+    private var hoverY = 0f
+    private val menuTasto = Runnable {
+        if (pennaGiu || !tastoInAria) return@Runnable
+        performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+        alMenuStilo?.invoke(hoverX, hoverY)
+    }
 
     init {
         addView(foglio, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
@@ -157,11 +170,24 @@ class EditorView(context: Context) : FrameLayout(context), InProgressStrokesFini
                 MotionEvent.ACTION_HOVER_ENTER, MotionEvent.ACTION_HOVER_MOVE -> {
                     pennaInHoverFino = event.eventTime + 400
                     annullaPressioneLunga()
+                    hoverX = event.x; hoverY = event.y
                     sopra.cursore(event.x, event.y, gommaAttiva(event))
+                    tastoInAria(event)
                 }
                 MotionEvent.ACTION_HOVER_EXIT -> {
                     pennaInHoverFino = event.eventTime + 250
                     sopra.nascondiCursore()
+                    rilasciaTastoInAria()
+                }
+                MotionEvent.ACTION_BUTTON_PRESS -> {
+                    if (pennaGiu) aggiornaTasto(event) else {
+                        hoverX = event.x; hoverY = event.y
+                        tastoInAria(event)
+                    }
+                }
+                MotionEvent.ACTION_BUTTON_RELEASE -> {
+                    if (pennaGiu) aggiornaTasto(event)
+                    rilasciaTastoInAria()
                 }
             }
         }
@@ -176,7 +202,7 @@ class EditorView(context: Context) : FrameLayout(context), InProgressStrokesFini
         // Il palmo appoggiato sulla casella di testo non tiene ferma la penna che scende fuori.
         if (gestoAlCampo && ev.actionMasked == MotionEvent.ACTION_POINTER_DOWN) {
             val i = ev.actionIndex
-            if (EventiPenna.penna(ev.getToolType(i)) && !dentroCampo(ev.getX(i), ev.getY(i))) gestoAlCampo = false
+            if (PenEvents.penna(ev.getToolType(i)) && !dentroCampo(ev.getX(i), ev.getY(i))) gestoAlCampo = false
         }
         val alCampo = gestoAlCampo
         if (ev.actionMasked == MotionEvent.ACTION_UP || ev.actionMasked == MotionEvent.ACTION_CANCEL) gestoAlCampo = false
@@ -186,12 +212,16 @@ class EditorView(context: Context) : FrameLayout(context), InProgressStrokesFini
     override fun onTouchEvent(event: MotionEvent): Boolean {
         registra(event)
         // Un gesto nuovo: se si credeva la penna ancora giu', la sua alzata e' andata persa.
-        if (event.actionMasked == MotionEvent.ACTION_DOWN) idPenna = -1
+        if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+            idPenna = -1
+            // La punta è scesa: il tasto a mezz'aria non deve più aprire il menu.
+            rilasciaTastoInAria()
+        }
         val n = event.pointerCount
         val ids = IntArray(n) { event.getPointerId(it) }
-        val s = EventiPenna.smista(event.actionMasked, event.actionIndex, IntArray(n) { event.getToolType(it) }, ids, idPenna)
+        val s = PenEvents.smista(event.actionMasked, event.actionIndex, IntArray(n) { event.getToolType(it) }, ids, idPenna)
         if (s != null) {
-            if (s == EventiPenna.IGNORA) return true
+            if (s == PenEvents.IGNORA) return true
             when (s.azione) {
                 MotionEvent.ACTION_DOWN -> {
                     if (inGestoDita) annullaGestoDita()
@@ -218,10 +248,10 @@ class EditorView(context: Context) : FrameLayout(context), InProgressStrokesFini
 
     /**
      * Passa a [tocchiPenna] l'evento come lo vede la penna. Se c'e' anche il palmo, se la penna non e'
-     * il primo puntatore o se qualche pressione va corretta ([EventiPenna.PressioneTenuta]), si fa un
+     * il primo puntatore o se qualche pressione va corretta ([PenEvents.PressioneTenuta]), si fa un
      * evento con la sola penna; altrimenti passa quello vero.
      */
-    private fun conPenna(e: MotionEvent, s: EventiPenna.Smistamento): Boolean {
+    private fun conPenna(e: MotionEvent, s: PenEvents.Smistamento): Boolean {
         if (s.indice < 0) {
             annullaGestoPenna(e)
             return true
@@ -304,9 +334,7 @@ class EditorView(context: Context) : FrameLayout(context), InProgressStrokesFini
     }
 
     private fun gommaAttiva(e: MotionEvent): Boolean =
-        strumenti.strumento == Strumento.GOMMA ||
-            e.getToolType(0) == MotionEvent.TOOL_TYPE_ERASER ||
-            (e.buttonState and MotionEvent.BUTTON_STYLUS_PRIMARY) != 0
+        strumenti.strumento == Strumento.GOMMA || StylusButton.gommaTemporanea(e.getToolType(0), e.buttonState)
 
     private enum class Gesto { NESSUNO, INCHIOSTRO, GOMMA, LAZO, SPOSTA_SELEZIONE, SCALA_SELEZIONE, OGGETTO, TESTO }
     private var gesto = Gesto.NESSUNO
@@ -342,8 +370,11 @@ class EditorView(context: Context) : FrameLayout(context), InProgressStrokesFini
                         }
                     }
                 }
+                gommaDaTasto = gesto == Gesto.GOMMA && strumenti.strumento != Strumento.GOMMA
             }
-            MotionEvent.ACTION_MOVE -> when (gesto) {
+            MotionEvent.ACTION_MOVE -> {
+                aggiornaTasto(e)
+                when (gesto) {
                 Gesto.INCHIOSTRO -> if (trattoLento != null) muoviTrattoLento(e) else trattoInCorso?.let {
                     predittore.record(e)
                     val previsione = predittore.predict()
@@ -355,6 +386,7 @@ class EditorView(context: Context) : FrameLayout(context), InProgressStrokesFini
                 Gesto.OGGETTO -> muoviOggetto(e.x, e.y)
                 Gesto.TESTO -> muoviRiquadroTesto(e.x, e.y)
                 Gesto.NESSUNO -> Unit
+                }
             }
             MotionEvent.ACTION_UP -> {
                 when (gesto) {
@@ -369,6 +401,7 @@ class EditorView(context: Context) : FrameLayout(context), InProgressStrokesFini
                 trattoInCorso = null
                 gesto = Gesto.NESSUNO
                 pennaGiu = false
+                gommaDaTasto = false
                 pennaInHoverFino = e.eventTime + 400
             }
             MotionEvent.ACTION_CANCEL -> {
@@ -381,9 +414,65 @@ class EditorView(context: Context) : FrameLayout(context), InProgressStrokesFini
                 trattoInCorso = null
                 gesto = Gesto.NESSUNO
                 pennaGiu = false
+                gommaDaTasto = false
             }
         }
         return true
+    }
+
+    /** Tasto laterale a mezz'aria: dopo la pressione lunga di Android si apre il menu, una volta. */
+    private fun tastoInAria(e: MotionEvent) {
+        if (pennaGiu) return
+        val premuto = StylusButton.tasto(e.getToolType(0), e.buttonState) ||
+            (e.actionMasked == MotionEvent.ACTION_BUTTON_PRESS && StylusButton.tasto(e.getToolType(0), e.actionButton))
+        if (premuto && !tastoInAria) {
+            tastoInAria = true
+            postDelayed(menuTasto, ViewConfiguration.getLongPressTimeout().toLong())
+        } else if (!premuto) {
+            rilasciaTastoInAria()
+        }
+    }
+
+    private fun rilasciaTastoInAria() {
+        tastoInAria = false
+        removeCallbacks(menuTasto)
+    }
+
+    /**
+     * Il tasto premuto con la punta giù cancella subito, anche a metà tratto.
+     * Al rilascio si torna allo strumento che c'era, se la gomma non era già scelta.
+     */
+    private fun aggiornaTasto(e: MotionEvent) {
+        val temporanea = StylusButton.gommaTemporanea(e.getToolType(0), e.buttonState)
+        if (temporanea && gesto != Gesto.GOMMA) {
+            when (gesto) {
+                Gesto.INCHIOSTRO -> {
+                    if (trattoLento != null) fineTrattoLento(e)
+                    else trattoInCorso?.let { inchiostro.finishStroke(e, e.getPointerId(0), it) }
+                    trattoInCorso = null
+                }
+                Gesto.LAZO -> { lazo.reset(); puntiLazo.clear(); sopra.invalidate() }
+                Gesto.SPOSTA_SELEZIONE, Gesto.SCALA_SELEZIONE -> fineTrasforma()
+                Gesto.OGGETTO -> annullaOggetto()
+                Gesto.TESTO -> { riquadroTesto = null; sopra.invalidate() }
+                Gesto.GOMMA, Gesto.NESSUNO -> Unit
+            }
+            gesto = Gesto.GOMMA
+            gommaDaTasto = strumenti.strumento != Strumento.GOMMA
+            iniziaGomma(e)
+        } else if (!temporanea && gommaDaTasto && gesto == Gesto.GOMMA) {
+            fineGomma()
+            gommaDaTasto = false
+            when (strumenti.strumento) {
+                Strumento.GOMMA -> { gesto = Gesto.GOMMA; iniziaGomma(e) }
+                Strumento.LAZO -> { gesto = Gesto.LAZO; iniziaLazo(e) }
+                Strumento.TESTO -> gesto = Gesto.NESSUNO
+                Strumento.PENNA -> {
+                    gesto = Gesto.INCHIOSTRO
+                    if (inchiostroDiretto) iniziaTratto(e) else iniziaTrattoLento(e)
+                }
+            }
+        }
     }
 
     // ---------------------------------------------------------------- inchiostro
@@ -397,7 +486,7 @@ class EditorView(context: Context) : FrameLayout(context), InProgressStrokesFini
         d.caricaTratti(d.pagine[i])
         val imp = strumenti.corrente
         val penna = strumenti.penna
-        val brush = Pennelli.brush(penna, imp.colore, imp.spessore)
+        val brush = Brushes.brush(penna, imp.colore, imp.spessore)
         val id = inchiostro.startStroke(e, e.getPointerId(0), brush, foglio.schermoAPagina(i, Matrix()))
         paginaDelTratto[id] = i to penna
         colore[id] = imp
@@ -421,9 +510,9 @@ class EditorView(context: Context) : FrameLayout(context), InProgressStrokesFini
         nuovi.forEach { (p, lista) -> alTrattiFiniti?.invoke(p, lista) }
     }
 
-    private fun aggiungiTratto(d: Documento, i: Int, penna: Penna, imp: ImpostazioniPenna, stroke: Stroke): Pair<PaginaViva, Tratto>? {
+    private fun aggiungiTratto(d: Document, i: Int, penna: Penna, imp: ImpostazioniPenna, stroke: Stroke): Pair<PaginaViva, Tratto>? {
         val p = d.pagine.getOrNull(i) ?: return null
-        val t = Tratto(d.nuovoIdTratto(), penna, imp.colore, imp.spessore, Pennelli.punti(stroke))
+        val t = Tratto(d.nuovoIdTratto(), penna, imp.colore, imp.spessore, Brushes.punti(stroke))
         p.precarica(t.id, stroke)
         d.esegui(Modifica(p, emptyList(), listOf(t)))
         return p to t
@@ -454,7 +543,7 @@ class EditorView(context: Context) : FrameLayout(context), InProgressStrokesFini
         paginaLenta = i
         t0Lento = e.eventTime
         foglio.schermoAPagina(i, schermoAPaginaLento)
-        trattoLento = InProgressStroke().apply { start(Pennelli.brush(pennaLenta, imp.colore, imp.spessore)) }
+        trattoLento = InProgressStroke().apply { start(Brushes.brush(pennaLenta, imp.colore, imp.spessore)) }
         muoviTrattoLento(e)
     }
 
@@ -465,7 +554,7 @@ class EditorView(context: Context) : FrameLayout(context), InProgressStrokesFini
             schermoAPaginaLento.mapPoints(punto)
             try {
                 batch.add(
-                    InputToolType.STYLUS, punto[0], punto[1], (tempo - t0Lento).coerceAtLeast(0L), Pennelli.CM_PER_UNITA,
+                    InputToolType.STYLUS, punto[0], punto[1], (tempo - t0Lento).coerceAtLeast(0L), Brushes.CM_PER_UNITA,
                     pressione.coerceIn(0f, 1f), inclinazione.coerceIn(0f, 1.5707f), StrokeInput.NO_ORIENTATION,
                 )
             } catch (_: IllegalArgumentException) {
@@ -663,7 +752,7 @@ class EditorView(context: Context) : FrameLayout(context), InProgressStrokesFini
             // del testo che si vede (la casella e' spesso molto piu' larga delle sue righe).
             for (o in p.oggetti) {
                 val r = DisegnoOggetti.riquadro(o)
-                val c = if (o is Testo) Impaginazione.impaginato(o).ingombro().takeIf { !it.isEmpty }?.apply { offset(o.x, o.y) } ?: r else r
+                val c = if (o is Testo) Pagination.impaginato(o).ingombro().takeIf { !it.isEmpty }?.apply { offset(o.x, o.y) } ?: r else r
                 if (dentroPoligono(c.centerX(), c.centerY(), poli)) {
                     oggettiPresi += o.id
                     if (box.isEmpty) box.set(r) else box.union(r)
@@ -844,7 +933,7 @@ class EditorView(context: Context) : FrameLayout(context), InProgressStrokesFini
         tratti.forEach { t -> for (k in 0 until t.quanti) { val x = t.punti[k * Tratto.CAMPI]; val y = t.punti[k * Tratto.CAMPI + 1]; minX = min(minX, x); minY = min(minY, y); maxX = max(maxX, x); maxY = max(maxY, y) } }
         oggetti.forEach { o -> val r = DisegnoOggetti.riquadro(o); minX = min(minX, r.left); minY = min(minY, r.top); maxX = max(maxX, r.right); maxY = max(maxY, r.bottom) }
         val cy = (height / 2f - foglio.ty) / foglio.scala - foglio.cimaPagina(i)
-        val dx = FoglioView.LARGHEZZA / 2 - (minX + maxX) / 2 + 20f
+        val dx = SheetView.LARGHEZZA / 2 - (minX + maxX) / 2 + 20f
         val dy = cy - (minY + maxY) / 2 + 20f
         val nuovi = tratti.map { t ->
             val pts = t.punti.copyOf()
@@ -988,7 +1077,7 @@ class EditorView(context: Context) : FrameLayout(context), InProgressStrokesFini
             maniglia == DENTRO -> {
                 // Almeno un pezzo resta sulla pagina.
                 val r = DisegnoOggetti.riquadro(o)
-                val nx = (o.x + dx).coerceIn(-r.width() + 40f, FoglioView.LARGHEZZA - 40f)
+                val nx = (o.x + dx).coerceIn(-r.width() + 40f, SheetView.LARGHEZZA - 40f)
                 val ny = (o.y + dy).coerceIn(-r.height() + 40f, altezza - 40f)
                 o.spostato(nx - o.x, ny - o.y)
             }
@@ -1097,8 +1186,8 @@ class EditorView(context: Context) : FrameLayout(context), InProgressStrokesFini
         val s = selezioneOggetto ?: return
         val o = oggettoSelezionato() ?: return
         val copia = when (o) {
-            is Immagine -> o.copy(id = Archivio.nuovoId(), x = o.x + 24f, y = o.y + 24f)
-            is Testo -> o.copy(id = Archivio.nuovoId(), x = o.x + 24f, y = o.y + 24f)
+            is Immagine -> o.copy(id = Archive.nuovoId(), x = o.x + 24f, y = o.y + 24f)
+            is Testo -> o.copy(id = Archive.nuovoId(), x = o.x + 24f, y = o.y + 24f)
         }
         aggiungiOggetto(s.pagina, copia)
     }
@@ -1135,10 +1224,10 @@ class EditorView(context: Context) : FrameLayout(context), InProgressStrokesFini
     /** Dove inserire qualcosa senza un punto preciso: il centro della parte visibile della pagina corrente. */
     fun puntoInserimento(): Pair<Int, PointF> {
         val i = foglio.paginaCorrente()
-        val altezza = documento?.pagine?.getOrNull(i)?.pagina?.altezza ?: FoglioView.LARGHEZZA
+        val altezza = documento?.pagine?.getOrNull(i)?.pagina?.altezza ?: SheetView.LARGHEZZA
         val alto = foglio.spazioSopra
         val pt = inPagina(i, width / 2f, (alto + height) / 2f)
-        return i to PointF(pt.x.coerceIn(0f, FoglioView.LARGHEZZA), pt.y.coerceIn(0f, altezza))
+        return i to PointF(pt.x.coerceIn(0f, SheetView.LARGHEZZA), pt.y.coerceIn(0f, altezza))
     }
 
     // ---------------------------------------------------------------- caselle di testo
@@ -1158,7 +1247,7 @@ class EditorView(context: Context) : FrameLayout(context), InProgressStrokesFini
     /** Il documento collegato alla nota, se c'e': con lo strumento Testo si scrive nel suo testo. */
     var documentoEsterno: DocumentoAperto? = null
 
-    private var campo: CampoTesto? = null
+    private var campo: TextField? = null
     private var modificaTesto: ModificaTesto? = null
 
     val inModificaTesto: Boolean get() = campo != null
@@ -1213,11 +1302,11 @@ class EditorView(context: Context) : FrameLayout(context), InProgressStrokesFini
      */
     fun nuovoTesto(i: Int, x: Float, y: Float, larghezza: Float? = null, tenereX: Boolean = false) {
         val p = documento?.pagine?.getOrNull(i) ?: return
-        val w = (larghezza ?: LARGHEZZA_TESTO).coerceIn(Testo.LARGHEZZA_MIN, FoglioView.LARGHEZZA - 2 * MARGINE_TESTO)
-        val x0 = if (tenereX) x.coerceIn(0f, FoglioView.LARGHEZZA - w) else x.coerceIn(MARGINE_TESTO, FoglioView.LARGHEZZA - MARGINE_TESTO - w)
-        val riga = Impaginazione.ALTEZZA_MIN
+        val w = (larghezza ?: LARGHEZZA_TESTO).coerceIn(Testo.LARGHEZZA_MIN, SheetView.LARGHEZZA - 2 * MARGINE_TESTO)
+        val x0 = if (tenereX) x.coerceIn(0f, SheetView.LARGHEZZA - w) else x.coerceIn(MARGINE_TESTO, SheetView.LARGHEZZA - MARGINE_TESTO - w)
+        val riga = Pagination.ALTEZZA_MIN
         val y0 = (y - riga / 2f).coerceIn(0f, p.pagina.altezza - riga)
-        apri(i, null, Archivio.nuovoId(), x0, y0, w, TestoRicco.VUOTO, null)
+        apri(i, null, Archive.nuovoId(), x0, y0, w, TestoRicco.VUOTO, null)
     }
 
     /**
@@ -1251,7 +1340,7 @@ class EditorView(context: Context) : FrameLayout(context), InProgressStrokesFini
         val d = documento ?: return
         val p = d.pagine.getOrNull(i) ?: return
         modificaTesto = ModificaTesto(p, originale, id, x, y, larghezza, esterno)
-        val c = CampoTesto(context)
+        val c = TextField(context)
         c.carica(contenuto)
         if (esterno != null) {
             c.addTextChangedListener(object : android.text.TextWatcher {
@@ -1633,7 +1722,7 @@ class EditorView(context: Context) : FrameLayout(context), InProgressStrokesFini
             addUpdateListener {
                 val f = it.animatedValue as Float
                 val s = da + (a - da) * f
-                foglio.impostaVista(s, (width - FoglioView.LARGHEZZA * s) / 2f, cy - wy * s)
+                foglio.impostaVista(s, (width - foglio.larghezzaFoglio() * s) / 2f, cy - wy * s)
             }
             start()
         }
@@ -1717,7 +1806,7 @@ class EditorView(context: Context) : FrameLayout(context), InProgressStrokesFini
             disegnaOggettoSelezionato(canvas)
             disegnaCorniceCampo(canvas)
             riquadroTesto?.let { rt ->
-                val alto = Impaginazione.ALTEZZA_MIN * foglio.scala
+                val alto = Pagination.ALTEZZA_MIN * foglio.scala
                 r.set(min(rt.left, rt.right), rt.top - alto / 2, max(rt.left, rt.right), rt.top + alto / 2)
                 canvas.drawRect(r, pRiquadro)
             }
@@ -1729,13 +1818,13 @@ class EditorView(context: Context) : FrameLayout(context), InProgressStrokesFini
                 } else if (strumenti.strumento == Strumento.PENNA) {
                     val imp = strumenti.corrente
                     val raggio = max(2f * densita, imp.spessore * foglio.scala / 2f)
-                    pPieno.color = Pennelli.coloreEffettivo(strumenti.penna, imp.colore)
+                    pPieno.color = Brushes.coloreEffettivo(strumenti.penna, imp.colore)
                     canvas.drawCircle(cx, cy, raggio, pPieno)
                     pCursore.color = Color.argb(120, 255, 255, 255)
                     canvas.drawCircle(cx, cy, raggio + 1f * densita, pCursore)
                 } else if (strumenti.strumento == Strumento.TESTO) {
                     // Cursore a "I", alto come una riga di testo normale.
-                    val h = max(8 * densita, Impaginazione.ALTEZZA_MIN * foglio.scala) / 2f
+                    val h = max(8 * densita, Pagination.ALTEZZA_MIN * foglio.scala) / 2f
                     val w = 3 * densita
                     pCursore.color = accento
                     canvas.drawLine(cx, cy - h, cx, cy + h, pCursore)
@@ -1770,7 +1859,7 @@ class EditorView(context: Context) : FrameLayout(context), InProgressStrokesFini
             val m = modificaTesto ?: return
             // Il campo e' alto quanto il testo; la cornice e' larga quanto la casella.
             rc.right = rc.left + m.larghezza * foglio.scala
-            rc.bottom = max(rc.bottom, rc.top + Impaginazione.ALTEZZA_MIN * foglio.scala)
+            rc.bottom = max(rc.bottom, rc.top + Pagination.ALTEZZA_MIN * foglio.scala)
             rc.inset(-4 * densita, -4 * densita)
             canvas.drawRect(rc, pRiquadro)
         }

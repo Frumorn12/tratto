@@ -1,5 +1,7 @@
 package it.frumorn.tratto.backup
 
+import it.frumorn.tratto.R
+
 import android.accounts.Account
 import android.app.PendingIntent
 import android.content.Context
@@ -14,7 +16,8 @@ import com.google.android.gms.common.api.CommonStatusCodes
 import com.google.android.gms.common.api.Scope
 import com.google.android.gms.tasks.Task
 import it.frumorn.tratto.TrattoApp
-import it.frumorn.tratto.data.Archivio
+import it.frumorn.tratto.data.Archive
+import it.frumorn.tratto.ui.testoOra
 import it.frumorn.tratto.data.scriviAtomico
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -74,7 +77,7 @@ class DriveBackup(
     private val fileStato get() = File(app.filesDir, "backup/drive.json")
 
     sealed interface Risultato {
-        /** Accesso concesso: l'account collegato e' in [ImpostazioniBackup]. */
+        /** Accesso concesso: l'account collegato e' in [BackupSettings]. */
         data class Autorizzato(val token: String) : Risultato
 
         /** Serve il consenso dell'utente: lanciare [pendingIntent] con StartIntentSenderForResult e poi [completaAutorizzazione]. */
@@ -107,7 +110,7 @@ class DriveBackup(
 
     /** Revoca l'accesso, dimentica lo stato del backup e spegne quello automatico. I file su Drive restano. */
     suspend fun disconnetti() {
-        val account = withContext(Dispatchers.IO) { ImpostazioniBackup.stato(app).value.account }
+        val account = withContext(Dispatchers.IO) { BackupSettings.stato(app).value.account }
         if (account != null) {
             try {
                 val richiesta = RevokeAccessRequest.builder()
@@ -122,18 +125,18 @@ class DriveBackup(
         }
         mutex.withLock { withContext(Dispatchers.IO) { fileStato.delete() } }
         withContext(Dispatchers.IO) {
-            ImpostazioniBackup.scollegato(app)
+            BackupSettings.scollegato(app)
             BackupWorker.pianifica(app)
         }
     }
 
     private suspend fun collegato(r: AuthorizationResult): Risultato.Autorizzato {
-        val token = r.accessToken ?: throw ErroreAccesso("Google non ha concesso l'accesso a Drive.", null, false)
+        val token = r.accessToken ?: throw ErroreAccesso(testoOra(R.string.google_did_not_grant_access_to_drive), null, false)
         if (SCOPE_DRIVE_FILE !in r.grantedScopes) {
-            throw ErroreAccesso("Per il backup serve il permesso di vedere e gestire i file creati da Tratto su Google Drive.", null, false)
+            throw ErroreAccesso(testoOra(R.string.backup_needs_permission_to_see_and_manage_the_fi), null, false)
         }
         if (conDocumenti && SCOPE_DOCUMENTI !in r.grantedScopes) {
-            throw ErroreAccesso("Per Google Docs serve il permesso di vedere e modificare i documenti.", null, false)
+            throw ErroreAccesso(testoOra(R.string.google_docs_needs_permission_to_see_and_edit_doc), null, false)
         }
         // L'email serve solo da mostrare: se non arriva la si prende al primo backup.
         val email = try {
@@ -143,7 +146,7 @@ class DriveBackup(
             null
         }
         withContext(Dispatchers.IO) {
-            ImpostazioniBackup.collegato(app, email)
+            BackupSettings.collegato(app, email)
             BackupWorker.pianifica(app)
         }
         return Risultato.Autorizzato(token)
@@ -152,7 +155,7 @@ class DriveBackup(
     private suspend fun richiedi(): AuthorizationResult {
         val richiesta = withContext(Dispatchers.IO) {
             val b = AuthorizationRequest.builder().setRequestedScopes(scopes)
-            ImpostazioniBackup.stato(app).value.account?.let { b.setAccount(Account(it, TIPO_ACCOUNT)) }
+            BackupSettings.stato(app).value.account?.let { b.setAccount(Account(it, TIPO_ACCOUNT)) }
             b.build()
         }
         return try {
@@ -184,18 +187,17 @@ class DriveBackup(
     private fun erroreAccesso(e: ApiException): Exception = when (e.statusCode) {
         CommonStatusCodes.SIGN_IN_REQUIRED, CommonStatusCodes.RESOLUTION_REQUIRED -> AccessoNecessario()
         CommonStatusCodes.DEVELOPER_ERROR -> ErroreAccesso(
-            "Accesso a Google non configurato per questa app: in Google Cloud Console serve un client OAuth " +
-                "Android con il package e lo SHA-1 giusti.", e, false,
+            testoOra(R.string.google_oauth_not_configured), e, false,
         )
-        CommonStatusCodes.NETWORK_ERROR -> ErroreAccesso("Nessuna connessione a Internet.", e, true)
-        CommonStatusCodes.CANCELED -> ErroreAccesso("Accesso a Google annullato.", e, false)
-        else -> ErroreAccesso("Accesso a Google non riuscito (codice ${e.statusCode}).", e, true)
+        CommonStatusCodes.NETWORK_ERROR -> ErroreAccesso(testoOra(R.string.no_internet_connection), e, true)
+        CommonStatusCodes.CANCELED -> ErroreAccesso(testoOra(R.string.google_access_cancelled), e, false)
+        else -> ErroreAccesso(testoOra(R.string.could_not_access_google_code, e.statusCode), e, true)
     }
 
     // ---------------------------------------------------------------- backup
 
     /** Carica su Drive le note cambiate dall'ultima volta, rinomina, cestina le cancellate e aggiorna l'indice. */
-    suspend fun sincronizza(archivio: Archivio = TrattoApp.archivio(app)): RiepilogoBackup = conStato {
+    suspend fun sincronizza(archivio: Archive = TrattoApp.archivio(app)): RiepilogoBackup = conStato {
         val rest = connetti()
         val stato = withContext(Dispatchers.IO) { StatoDrive.leggi(fileStato) }
         controllaAccount(rest, stato)
@@ -210,7 +212,7 @@ class DriveBackup(
         val voci = try {
             datiIndice?.let { JSONObject(String(it, Charsets.UTF_8)) }?.elenco("note") ?: emptyList()
         } catch (e: JSONException) {
-            throw IOException("L'indice delle note sul tablet è illeggibile: backup non eseguito.", e)
+            throw IOException(testoOra(R.string.the_note_index_on_the_tablet_cannot_be_read_back), e)
         }
         val temp = File(app.cacheDir, "drive-backup")
         var caricate = 0
@@ -232,7 +234,7 @@ class DriveBackup(
                 if (voce == null || remoto == null || voce.fileId != remoto.id || voce.modificata != n.modificata) {
                     val zip = File(temp, "$id.tratto")
                     val esportate = withContext(Dispatchers.IO) {
-                        FileOutputStream(zip).use { BackupLocale.esportaIn(radice, it, id) }
+                        FileOutputStream(zip).use { LocalBackup.esportaIn(radice, it, id) }
                     }
                     if (esportate.isEmpty()) continue // cancellata nel frattempo
                     val modificata = esportate[0].modificata
@@ -286,7 +288,7 @@ class DriveBackup(
         } finally {
             withContext(Dispatchers.IO) { temp.deleteRecursively() }
         }
-        withContext(Dispatchers.IO) { ImpostazioniBackup.riuscito(app, System.currentTimeMillis()) }
+        withContext(Dispatchers.IO) { BackupSettings.riuscito(app, System.currentTimeMillis()) }
         RiepilogoBackup(caricate, rinominate, cestinate)
     }
 
@@ -294,12 +296,12 @@ class DriveBackup(
      * Scarica tutte le note dalla cartella "Tratto" di Drive e le unisce all'archivio con le regole
      * di [ModoRipristino.UNISCI]: nessuna nota locale va persa.
      */
-    suspend fun ripristinaDaDrive(archivio: Archivio = TrattoApp.archivio(app)): RiepilogoRipristino = conStato {
+    suspend fun ripristinaDaDrive(archivio: Archive = TrattoApp.archivio(app)): RiepilogoRipristino = conStato {
         val rest = connetti()
         val stato = withContext(Dispatchers.IO) { StatoDrive.leggi(fileStato) }
         controllaAccount(rest, stato)
         val cartella = cartella(rest, stato, crea = false)
-            ?: throw IOException("Su Google Drive non c'è nessun backup di Tratto per questo account.")
+            ?: throw IOException(testoOra(R.string.there_is_no_tratto_backup_on_google_drive_for_th))
         val remoti = rest.cerca("'$cartella' in parents and trashed = false")
         val lavoro = File(archivio.temporanei, "drive-ripristino-${System.nanoTime()}")
         try {
@@ -342,8 +344,8 @@ class DriveBackup(
             val riepilogo = withContext(Dispatchers.IO) {
                 val indice = indiceCon(indiceRemoto ?: indiceVuoto(), cartelle.values.toList(), note)
                 scriviAtomico(File(unito, "indice.json"), indice.toString().toByteArray())
-                val sorgente = BackupLocale.Sorgente(unito, indice, note, cartelle.values.toList(), saltate)
-                BackupLocale.applica(archivio.radice, sorgente, ModoRipristino.UNISCI, archivio) { archivio.ricarica() }
+                val sorgente = LocalBackup.Sorgente(unito, indice, note, cartelle.values.toList(), saltate)
+                LocalBackup.applica(archivio.radice, sorgente, ModoRipristino.UNISCI, archivio) { archivio.ricarica() }
             }
 
             // Le note che ora sono identiche a quelle su Drive non vanno ricaricate al prossimo backup.
@@ -364,8 +366,8 @@ class DriveBackup(
     private fun prendiNota(zip: File, lavoro: File, unito: File, cartelle: MutableMap<String, JSONObject>): JSONObject? {
         val dir = File(lavoro, "estratto")
         try {
-            FileInputStream(zip).use { BackupLocale.estrai(it, dir) }
-            val s = BackupLocale.leggiSorgente(dir)
+            FileInputStream(zip).use { LocalBackup.estrai(it, dir) }
+            val s = LocalBackup.leggiSorgente(dir)
             val n = s.note.singleOrNull() ?: return null
             val dest = File(unito, "note/${n.id}")
             if (dest.exists() || !s.cartellaNota(n.id).renameTo(dest)) return null
@@ -383,19 +385,19 @@ class DriveBackup(
 
     /** Un solo backup o ripristino alla volta, con lo stato per la UI aggiornato. */
     private suspend fun <T> conStato(blocco: suspend () -> T): T = mutex.withLock {
-        withContext(Dispatchers.IO) { ImpostazioniBackup.inizio(app) }
+        withContext(Dispatchers.IO) { BackupSettings.inizio(app) }
         try {
             blocco()
         } catch (e: AccessoNecessario) {
-            withContext(Dispatchers.IO) { ImpostazioniBackup.serveAccesso(app) }
+            withContext(Dispatchers.IO) { BackupSettings.serveAccesso(app) }
             throw e
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            withContext(Dispatchers.IO) { ImpostazioniBackup.errore(app, messaggio(e)) }
+            withContext(Dispatchers.IO) { BackupSettings.errore(app, messaggio(e)) }
             throw e
         } finally {
-            withContext(Dispatchers.IO + kotlinx.coroutines.NonCancellable) { ImpostazioniBackup.fine(app) }
+            withContext(Dispatchers.IO + kotlinx.coroutines.NonCancellable) { BackupSettings.fine(app) }
         }
     }
 
@@ -404,7 +406,7 @@ class DriveBackup(
         val email = rest.email() ?: return
         if (stato.account != null && stato.account != email) stato.azzera()
         stato.account = email
-        withContext(Dispatchers.IO) { ImpostazioniBackup.collegato(app, email) }
+        withContext(Dispatchers.IO) { BackupSettings.collegato(app, email) }
     }
 
     /** Id della cartella "Tratto" su Drive: quella salvata, oppure la si cerca, oppure (se [crea]) la si crea. */
@@ -424,10 +426,10 @@ class DriveBackup(
     private suspend fun salva(stato: StatoDrive) = withContext(Dispatchers.IO) { stato.salva(fileStato) }
 
     private fun messaggio(e: Exception): String = when (e) {
-        is UnknownHostException -> "Nessuna connessione a Internet."
-        is SocketTimeoutException -> "Google Drive non risponde: si riproverà più tardi."
-        is JSONException -> "Risposta non valida da Google Drive."
-        else -> e.message ?: "Errore sconosciuto durante il backup."
+        is UnknownHostException -> testoOra(R.string.no_internet_connection)
+        is SocketTimeoutException -> testoOra(R.string.google_drive_is_not_responding_trying_again_late)
+        is JSONException -> testoOra(R.string.invalid_response_from_google_drive)
+        else -> e.message ?: testoOra(R.string.unknown_error_during_backup)
     }
 
     private fun nomeSuDrive(n: JSONObject): String {

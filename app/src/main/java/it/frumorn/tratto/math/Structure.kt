@@ -1,0 +1,326 @@
+package it.frumorn.tratto.math
+
+import kotlin.math.abs
+
+/** Un pezzo di formula su una riga: un simbolo, una frazione o una radice. */
+internal sealed class Elemento : Ingombro {
+    abstract val forme: List<InkShape>
+    private val r: Rettangolo by lazy { unione(forme) }
+    override val sx: Float get() = r.sx
+    override val alto: Float get() = r.alto
+    override val dx: Float get() = r.dx
+    override val basso: Float get() = r.basso
+}
+
+/**
+ * Un simbolo: uno o piu' tratti vicini (il piu' in due tratti, il 4 in due tempi). I simboli
+ * riconosciuti gia' dalla forma hanno [speciale], il loro testo nella formula: "/" per il
+ * diviso con i due puntini, "*" per il puntino a meta' altezza, "√" per la radice senza barra.
+ */
+internal class Gruppo(override val forme: List<InkShape>, val speciale: String? = null) : Elemento()
+
+internal class Frazione(val barra: InkShape, val numeratore: Riga, val denominatore: Riga) : Elemento() {
+    override val forme: List<InkShape> = listOf(barra) + numeratore.forme + denominatore.forme
+}
+
+internal class Radice(val segno: List<InkShape>, val contenuto: Riga) : Elemento() {
+    override val forme: List<InkShape> = segno + contenuto.forme
+}
+
+/** Un elemento con il suo eventuale esponente. */
+internal class Voce(val elemento: Elemento, val esponente: Riga?)
+
+/** Una sequenza di elementi allo stesso livello, da sinistra a destra; [h] e' l'altezza tipica dei simboli. */
+internal class Riga(val voci: List<Voce>, val h: Float) {
+    val forme: List<InkShape> get() = voci.flatMap { v -> v.elemento.forme + (v.esponente?.forme ?: emptyList()) }
+
+    /** I simboli di grandezza normale: questa riga, numeratori, denominatori e radicandi, senza esponenti. */
+    fun gruppiNormali(): List<Gruppo> = voci.flatMap { v ->
+        when (val e = v.elemento) {
+            is Gruppo -> listOf(e)
+            is Frazione -> e.numeratore.gruppiNormali() + e.denominatore.gruppiNormali()
+            is Radice -> e.contenuto.gruppiNormali()
+        }
+    }
+}
+
+/**
+ * Analisi bidimensionale di una formula scritta a mano: dai tratti a un albero di righe,
+ * frazioni, radici ed esponenti. ML Kit legge solo testo su una riga; qui si trova la struttura
+ * e poi si fanno leggere a ML Kit solo i pezzi lineari.
+ *
+ * 1. Strutture, dalla piu' larga (cosi' in una frazione di frazioni la barra principale viene
+ *    prima delle altre, e una radice che copre una frazione viene prima della frazione):
+ *    - barra di frazione: un trattino orizzontale con simboli veri (non puntini, come nel
+ *      diviso) sia sopra sia sotto, dentro la sua larghezza;
+ *    - radice: un tratto a "√" (breve discesa, lunga salita) con la barra in cima, nello stesso
+ *      tratto o in un trattino a parte che parte dalla punta; copre i simboli sotto la barra.
+ *    Numeratore, denominatore e radicando si analizzano allo stesso modo, ricorsivamente.
+ * 2. I tratti rimasti si raggruppano in simboli: tratti che si sovrappongono in orizzontale.
+ * 3. Esponenti: dopo un simbolo alto (cifra, parentesi), i simboli piu' piccoli con il centro
+ *    nella parte alta del simbolo e subito a destra.
+ */
+internal object Structure {
+    private const val PROFONDITA_MAX = 6
+
+    fun analizza(forme: List<InkShape>, hPadre: Float, profondita: Int = 0): Riga {
+        if (forme.isEmpty()) return Riga(emptyList(), hPadre)
+        val h = altezzaTipica(forme, hPadre)
+        val libere = forme.toMutableList()
+        val strutture = ArrayList<Elemento>()
+        if (profondita < PROFONDITA_MAX) {
+            while (true) {
+                val c = candidataPiuLarga(libere, h) ?: break
+                libere.removeAll { it in c.forme }
+                strutture += c.costruisci(profondita)
+            }
+        }
+        val elementi = (raggruppa(libere, h) + strutture).sortedBy { it.sx }
+        return apici(elementi, h, profondita)
+    }
+
+    /**
+     * [altezzaCifre] dei tratti non piatti e non parentesi (che nel corsivo sono alte quasi il
+     * doppio delle cifre); con meno di due tratti, quella del livello sopra.
+     */
+    internal fun altezzaTipica(forme: List<InkShape>, hPadre: Float): Float {
+        val alte = forme.filter { !it.piatto(hPadre) && it.altezza >= 0.3f * it.larghezza && !it.parentesi }
+        if (alte.size < 2) return hPadre
+        // Per simbolo, non per tratto: un 5 scritto in due pezzi da 18 e 19 e' alto 38, e le sue
+        // due meta' abbassavano la stima fino a non riconoscere piu' la frazione ("20/5").
+        val simboli = raggruppa(alte, hPadre).map { it.altezza }
+        val altezze = if (simboli.size >= 2) simboli else alte.map { it.altezza }
+        return altezzaCifre(altezze).coerceIn(0.3f * hPadre, 1.6f * hPadre)
+    }
+
+    /**
+     * Vero se in una riga (o in un suo pezzo) ci sono due simboli uno sopra l'altro senza una
+     * struttura che li spieghi: per esempio una frazione con il denominatore troppo lontano
+     * dalla barra. Letti in fila darebbero un risultato sbagliato ("3" sopra "4" -> 34): meglio
+     * non scrivere niente.
+     */
+    fun ambigua(riga: Riga): Boolean {
+        val gruppi = riga.voci.map { it.elemento }.filterIsInstance<Gruppo>()
+        for (i in gruppi.indices) for (j in i + 1 until gruppi.size) {
+            val a = gruppi[i]
+            val b = gruppi[j]
+            val stretta = minOf(maxOf(a.larghezza, 0.15f * riga.h), maxOf(b.larghezza, 0.15f * riga.h))
+            if (sovrapposizioneX(a, b) >= 0.5f * stretta && distanzaY(a, b) > 0.1f * riga.h) return true
+        }
+        return riga.voci.any { v ->
+            val e = v.elemento
+            (v.esponente?.let { ambigua(it) } ?: false) ||
+                (e is Frazione && (ambigua(e.numeratore) || ambigua(e.denominatore))) ||
+                (e is Radice && ambigua(e.contenuto))
+        }
+    }
+
+    // --- Frazioni e radici ---------------------------------------------------------------------
+
+    private class Candidata(val larghezza: Float, val forme: Set<InkShape>, val costruisci: (Int) -> Elemento)
+
+    private fun candidataPiuLarga(libere: List<InkShape>, h: Float): Candidata? {
+        var migliore: Candidata? = null
+        for (f in libere) {
+            val c = frazione(f, libere, h) ?: radice(f, libere, h) ?: continue
+            if (migliore == null || c.larghezza > migliore.larghezza) migliore = c
+        }
+        return migliore
+    }
+
+    private fun frazione(b: InkShape, libere: List<InkShape>, h: Float): Candidata? {
+        if (!b.orizzontale || b.larghezza < 0.45f * h) return null
+        val colonna = libere.filter { Colonna.dentro(b, it, h) }
+        // Sopra: dal piu' vicino alla barra in su, finche' non c'e' un vuoto (dalla barra al primo
+        // tratto si tollera un po' di piu': a mano numeratore e denominatore stanno staccati).
+        val sopra = ArrayList<InkShape>()
+        var frontiera = b.alto
+        for (c in colonna.filter { Colonna.sopra(b, it, h) }.sortedByDescending { it.basso }) {
+            val passo = if (sopra.isEmpty()) Colonna.DALLA_BARRA_STRUTTURA else Colonna.TRA_TRATTI + 0.1f
+            if (c.basso < frontiera - passo * h) break
+            sopra += c
+            if (c.alto < frontiera) frontiera = c.alto
+        }
+        val sotto = ArrayList<InkShape>()
+        frontiera = b.basso
+        for (c in colonna.filter { Colonna.sotto(b, it, h) }.sortedBy { it.alto }) {
+            val passo = if (sotto.isEmpty()) Colonna.DALLA_BARRA_STRUTTURA else Colonna.TRA_TRATTI + 0.1f
+            if (c.alto > frontiera + passo * h) break
+            sotto += c
+            if (c.basso > frontiera) frontiera = c.basso
+        }
+        // Simboli veri sopra e sotto: i puntini del diviso non fanno una frazione.
+        if (sopra.none { !it.piccolo(h) } || sotto.none { !it.piccolo(h) }) return null
+        return Candidata(b.larghezza, (sopra + sotto + b).toSet()) { p ->
+            Frazione(b, analizza(sopra, h, p + 1), analizza(sotto, h, p + 1))
+        }
+    }
+
+    /** Punta (dove la salita incontra la barra), cima e fine della barra se e' nello stesso tratto. */
+    internal class SegnoRadice(val xPunta: Float, val yCima: Float, val fineBarra: Float?)
+
+    /**
+     * Un tratto a forma di radice: parte a meta' altezza o piu' in basso, scende un poco (il
+     * trattino corto a sinistra), risale fino in cima verso destra e poi, se c'e', va a destra
+     * restando in alto (la barra). Il V e le cifre partono dall'alto o non risalgono alla fine.
+     */
+    internal fun segnoRadice(f: InkShape, h: Float): SegnoRadice? {
+        val n = f.quanti
+        if (n < 3 || f.altezza < 0.6f * h) return null
+        val alt = f.altezza
+        var iBasso = 0
+        for (i in 1 until n) if (f.y(i) > f.y(iBasso)) iBasso = i
+        if (iBasso == 0 || f.y(0) < f.alto + 0.25f * alt || f.y(iBasso) - f.y(0) < 0.15f * alt) return null
+        if (f.x(iBasso) - f.sx > 0.65f * f.larghezza) return null
+        // La punta: il primo punto che arriva in cima (la barra puo' essere un po' inclinata).
+        val iCima = (iBasso + 1 until n).firstOrNull { f.y(it) <= f.alto + 0.15f * alt } ?: return null
+        if (f.x(iCima) <= f.x(iBasso)) return null
+        // Dopo la cima: la barra (resta in alto e va a destra) oppure una coda corta.
+        var coda = 0f
+        var inAlto = true
+        for (i in iCima + 1 until n) {
+            coda += kotlin.math.hypot(f.x(i) - f.x(i - 1), f.y(i) - f.y(i - 1))
+            if (f.y(i) > f.alto + 0.3f * alt) inAlto = false
+        }
+        val barra = inAlto && f.x(n - 1) - f.x(iCima) >= 0.4f * h
+        if (!barra && coda > 0.3f * alt) return null
+        return SegnoRadice(f.x(iCima), f.alto, if (barra) f.dx else null)
+    }
+
+    private fun radice(f: InkShape, libere: List<InkShape>, h: Float): Candidata? {
+        val s = segnoRadice(f, h) ?: return null
+        var barra: InkShape? = null
+        val fine = s.fineBarra ?: run {
+            barra = libere
+                .filter { it !== f && it.orizzontale && abs(it.sx - s.xPunta) <= 0.4f * h && abs(it.cy - s.yCima) <= 0.4f * h && it.dx > s.xPunta + 0.3f * h }
+                .maxByOrNull { it.larghezza }
+            barra?.dx ?: return null
+        }
+        val segno = listOfNotNull(f, barra)
+        val contenuto = libere.filter {
+            it !== f && it !== barra && it.cx > s.xPunta && it.cx < fine + 0.1f * h &&
+                it.alto >= s.yCima - 0.25f * h && it.basso <= f.basso + 0.4f * h
+        }
+        if (contenuto.isEmpty()) return null
+        return Candidata(fine - f.sx, (segno + contenuto).toSet()) { p -> Radice(segno, analizza(contenuto, h, p + 1)) }
+    }
+
+    // --- Simboli -------------------------------------------------------------------------------
+
+    internal fun raggruppa(libere: List<InkShape>, h: Float): List<Gruppo> {
+        // Una radice senza barra resta un simbolo a se': il radicando le sta attaccato.
+        val radici = libere.filter { segnoRadice(it, h) != null }
+        val resto = libere.filter { it !in radici }
+        val padre = IntArray(resto.size) { it }
+        fun radice(i: Int): Int {
+            var r = i
+            while (padre[r] != r) r = padre[r]
+            padre[i] = r
+            return r
+        }
+        for (i in resto.indices) for (j in i + 1 until resto.size) {
+            if (stessoSimbolo(resto[i], resto[j], h)) padre[radice(i)] = radice(j)
+        }
+        val gruppi = resto.indices.groupBy { radice(it) }.values.map { indici -> indici.map { resto[it] } }
+        val asse = mediana(gruppi.filter { g -> g.maxOf { it.altezza } >= 0.5f * h }.map { g -> unione(g).cy })
+        return gruppi.map { Gruppo(it, speciale(it, h, if (asse > 0f) asse else Float.NaN)) } +
+            radici.map { Gruppo(listOf(it), "√") }
+    }
+
+    /** Due tratti dello stesso simbolo: si sovrappongono in orizzontale e sono vicini in verticale. */
+    private fun stessoSimbolo(a: InkShape, b: InkShape, h: Float): Boolean {
+        val minimo = minOf(maxOf(a.larghezza, 0.15f * h), maxOf(b.larghezza, 0.15f * h))
+        val (stretto, largo) = if (a.larghezza <= b.larghezza) a to b else b to a
+        // Un puntino dentro la larghezza di un trattino (il diviso) conta come sovrapposto.
+        val dentro = stretto.sx >= largo.sx - 0.05f * h && stretto.dx <= largo.dx + 0.05f * h
+        if (sovrapposizioneX(a, b) < 0.45f * minimo && !dentro) return false
+        if (distanzaY(a, b) > 0.45f * h) return false
+        // Un esponente scritto stretto non si attacca alla base.
+        val (grande, piccolo) = if (a.altezza >= b.altezza) a to b else b to a
+        val apice = piccolo.sx >= grande.cx && piccolo.cy <= grande.alto + 0.3f * grande.altezza &&
+            piccolo.altezza <= 0.9f * grande.altezza && !piccolo.piatto(h)
+        return !apice
+    }
+
+    /** Simboli che si riconoscono dalla forma meglio che con ML Kit. */
+    private fun speciale(forme: List<InkShape>, h: Float, asse: Float): String? {
+        // Diviso: un trattino con un puntino sopra e uno sotto.
+        if (forme.size == 3) {
+            val barra = forme.firstOrNull { it.orizzontale && !it.piccolo(h) }
+            val punti = forme.filter { it !== barra && it.piccolo(h) }
+            if (barra != null && punti.size == 2 && punti.any { it.cy < barra.cy } && punti.any { it.cy > barra.cy }) return "/"
+        }
+        // Piu': un trattino orizzontale e uno verticale che si incrociano verso il centro. ML Kit
+        // lo legge spesso come "1" o "t" quando l'asta verticale e' piu' lunga della barra.
+        if (forme.size == 2 && piu(forme[0], forme[1], h)) return "+"
+        // Per: un puntino a meta' altezza (quello in basso e' la virgola dei decimali).
+        if (forme.size == 1 && !asse.isNaN()) {
+            val f = forme[0]
+            if (maxOf(f.larghezza, f.altezza) <= 0.2f * h && abs(f.cy - asse) <= 0.2f * h) return "*"
+        }
+        return null
+    }
+
+    private fun piu(a: InkShape, b: InkShape, h: Float): Boolean {
+        val (barra, asta) = when {
+            a.orizzontale && !b.orizzontale -> a to b
+            b.orizzontale && !a.orizzontale -> b to a
+            else -> return false
+        }
+        if (asta.altezza < 0.25f * h || asta.larghezza > 0.45f * asta.altezza + 2f) return false
+        if (asta.altezza > 1.4f * h || barra.larghezza > 1.4f * h) return false
+        val rapporto = barra.larghezza / asta.altezza
+        if (rapporto < 0.4f || rapporto > 2.5f) return false
+        // L'incrocio cade nella parte centrale di tutti e due i tratti.
+        return asta.cx in barra.sx + 0.15f * barra.larghezza..barra.dx - 0.15f * barra.larghezza &&
+            barra.cy in asta.alto + 0.15f * asta.altezza..asta.basso - 0.15f * asta.altezza
+    }
+
+    // --- Esponenti -----------------------------------------------------------------------------
+
+    private fun apici(elementi: List<Elemento>, h: Float, profondita: Int): Riga {
+        val voci = ArrayList<Voce>()
+        var i = 0
+        // Altezza della cifra piu' alta del numero in corso (le cifre di fila prima della base):
+        // e' quella che un esponente non deve raggiungere.
+        var numero = 0f
+        while (i < elementi.size) {
+            val e = elementi[i++]
+            val esponente = ArrayList<Elemento>()
+            val cifra = e is Gruppo && e.speciale == null && e.altezza >= 0.45f * h && e.altezza >= 0.3f * e.larghezza &&
+                e.forme.singleOrNull()?.parentesi != true
+            numero = if (cifra) maxOf(numero, e.altezza) else 0f
+            if (e is Gruppo && e.speciale == null && e.altezza >= 0.45f * h && e.altezza >= 0.3f * e.larghezza) {
+                // Una parentesi sporge sopra e sotto le cifre (nel corsivo anche di meta'): si
+                // misura sulla sua parte centrale, e un esponente deve essere piu' piccolo delle
+                // cifre della riga, se no le cifre dopo "(" sembrano esponenti.
+                val parentesi = e.forme.singleOrNull()?.parentesi == true
+                val alto = if (parentesi) e.alto + 0.1f * e.altezza else e.alto
+                val altezza = if (parentesi) 0.8f * e.altezza else e.altezza
+                // Rispetto al numero intero, non solo alla sua ultima cifra: in "20⁵" con lo 0
+                // piccolo (alto 25, il 2 alto 44) un 5 alto 26 e' ancora un esponente.
+                val massima = if (parentesi) 0.85f * minOf(altezza, h) else 0.9f * maxOf(altezza, 0.8f * h, numero)
+                var ultimo: Ingombro = e
+                while (i < elementi.size) {
+                    val c = elementi[i]
+                    val alzato = c.cy <= alto + 0.3f * altezza && c.basso <= alto + 0.6f * altezza &&
+                        c.altezza <= massima && c.sx >= e.sx + 0.4f * e.larghezza && c.sx - ultimo.dx <= 0.9f * h
+                    if (!alzato) break
+                    esponente += c
+                    ultimo = c
+                    i++
+                }
+            }
+            // Un esponente fatto solo di trattini non esiste: e' un meno scritto un po' alto (in
+            // "50 - (2-0)²" il meno stava nella parte alta dello 0 e diventava 50 alla meno).
+            if (esponente.isNotEmpty() && esponente.all { it is Gruppo && it.speciale == null && it.altezza < 0.3f * h }) {
+                i -= esponente.size
+                esponente.clear()
+            }
+            val riga = if (esponente.isEmpty()) null
+            else analizza(esponente.flatMap { it.forme }, 0.6f * h, minOf(profondita + 1, PROFONDITA_MAX))
+            voci += Voce(e, riga)
+        }
+        return Riga(voci, h)
+    }
+}

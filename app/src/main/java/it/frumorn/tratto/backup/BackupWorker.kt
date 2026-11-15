@@ -16,7 +16,7 @@ import kotlinx.coroutines.CancellationException
 import java.util.concurrent.TimeUnit
 
 /**
- * Backup automatico in background. Dove va lo decide [DestinazioneBackup], diverso nelle due
+ * Backup automatico in background. Dove va lo decide [BackupDestination], diverso nelle due
  * versioni: Google Drive nella completa (il token si chiede senza interfaccia: se Google vuole di
  * nuovo il consenso il worker si ferma e lo stato diventa "serve accesso"), una cartella scelta
  * dall'utente nella libera.
@@ -24,13 +24,13 @@ import java.util.concurrent.TimeUnit
 class BackupWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
 
     override suspend fun doWork(): Result = try {
-        DestinazioneBackup.esegui(applicationContext)
+        BackupDestination.esegui(applicationContext)
         Result.success()
     } catch (e: CancellationException) {
         throw e
     } catch (e: Exception) {
         // Il messaggio per la UI l'ha gia' salvato la destinazione.
-        if (DestinazioneBackup.daRiprovare(e) && runAttemptCount < MAX_TENTATIVI) Result.retry() else Result.failure()
+        if (BackupDestination.daRiprovare(e) && runAttemptCount < MAX_TENTATIVI) Result.retry() else Result.failure()
     }
 
     companion object {
@@ -41,16 +41,16 @@ class BackupWorker(context: Context, params: WorkerParameters) : CoroutineWorker
 
         /** Rete richiesta: nessuna se la destinazione non la usa (una cartella sul tablet). */
         private fun rete(soloWifi: Boolean) = when {
-            !DestinazioneBackup.USA_RETE -> NetworkType.NOT_REQUIRED
+            !BackupDestination.USA_RETE -> NetworkType.NOT_REQUIRED
             soloWifi -> NetworkType.UNMETERED
             else -> NetworkType.CONNECTED
         }
 
-        /** Pianifica, aggiorna o cancella il backup giornaliero secondo [ImpostazioniBackup]. */
+        /** Pianifica, aggiorna o cancella il backup giornaliero secondo [BackupSettings]. */
         fun pianifica(context: Context) {
-            val s = ImpostazioniBackup.stato(context).value
+            val s = BackupSettings.stato(context).value
             val wm = WorkManager.getInstance(context)
-            if (!s.automatico || !DestinazioneBackup.collegata(s)) {
+            if (!s.automatico || !BackupDestination.collegata(s)) {
                 wm.cancelUniqueWork(GIORNALIERO)
                 return
             }

@@ -4,6 +4,8 @@
 
     <!-- Il permesso INTERNET e il provider di ML Kit sono in src/completa/AndroidManifest.xml:
          la versione libera non usa la rete. -->
+    <!-- Pulsante « Accueil » disegnato sopra il selettore di file, che su tablet non si chiude da solo. -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
     <application
         android:name=".TrattoApp"
@@ -12,12 +14,15 @@
         android:roundIcon="@mipmap/ic_launcher"
         android:theme="@style/Tema.Tratto"
         android:enableOnBackInvokedCallback="true"
+        android:localeConfig="@xml/locales_config"
         android:supportsRtl="false">
 
         <activity
             android:name=".MainActivity"
             android:exported="true"
             android:launchMode="singleTask"
+            android:screenOrientation="fullUser"
+            android:resizeableActivity="true"
             android:windowSoftInputMode="adjustResize"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode|density|fontScale">
             <intent-filter>
@@ -48,15 +53,15 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:mimeType="application/pdf" />
             </intent-filter>
-            <meta-data android:name="android.app.shortcuts" android:resource="@xml/scorciatoie" />
+            <meta-data android:name="android.app.shortcuts" android:resource="@xml/shortcuts" />
         </activity>
 
         <!-- Voce separata "Nuova nota" per il launcher, da usare per esempio con il doppio tocco di Lawnchair. -->
         <activity-alias
-            android:name=".NuovaNota"
+            android:name=".NewNote"
             android:exported="true"
             android:label="@string/nuova_nota"
-            android:icon="@drawable/scorciatoia_nuova"
+            android:icon="@drawable/shortcut_new_note"
             android:targetActivity=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -67,22 +72,24 @@
 
         <!-- Nota rapida: foglietto sopra l'app in primo piano, in un task tutto suo e fuori dai recenti. -->
         <activity
-            android:name=".notarapida.NotaRapidaActivity"
+            android:name=".quicknote.QuickNoteActivity"
             android:exported="false"
-            android:taskAffinity="it.frumorn.tratto.notarapida"
+            android:taskAffinity="it.frumorn.tratto.quicknote"
             android:launchMode="singleTask"
             android:excludeFromRecents="true"
-            android:theme="@style/Tema.Tratto.NotaRapida"
+            android:screenOrientation="fullUser"
+            android:resizeableActivity="true"
+            android:theme="@style/Tema.Tratto.QuickNote"
             android:windowSoftInputMode="adjustNothing"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode|density|fontScale" />
 
         <!-- Voce "Nota rapida" per il launcher: il doppio tocco di Lawnchair sulla Home apre il foglietto. -->
         <activity-alias
-            android:name=".NotaRapida"
+            android:name=".QuickNote"
             android:exported="true"
             android:label="@string/nota_rapida"
-            android:icon="@drawable/scorciatoia_nuova"
-            android:targetActivity=".notarapida.NotaRapidaActivity">
+            android:icon="@drawable/shortcut_new_note"
+            android:targetActivity=".quicknote.QuickNoteActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -91,18 +98,18 @@
 
         <!-- Apre la nota rapida da qualsiasi app con il pulsante Accessibilita' o i tasti del volume. -->
         <service
-            android:name=".ingressi.ServizioNotaRapida"
+            android:name=".shortcuts.QuickNoteService"
             android:exported="true"
             android:label="@string/servizio_nota_rapida"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
             <intent-filter>
                 <action android:name="android.accessibilityservice.AccessibilityService" />
             </intent-filter>
-            <meta-data android:name="android.accessibilityservice" android:resource="@xml/servizio_nota_rapida" />
+            <meta-data android:name="android.accessibilityservice" android:resource="@xml/quick_note_service" />
         </service>
 
         <service
-            android:name=".ingressi.TileNuovaNota"
+            android:name=".shortcuts.NewNoteTile"
             android:exported="true"
             android:icon="@drawable/ic_edit_note"
             android:label="@string/nuova_nota"
@@ -114,7 +121,7 @@
         </service>
 
         <service
-            android:name=".ingressi.TileNotaRapida"
+            android:name=".shortcuts.QuickNoteTile"
             android:exported="true"
             android:icon="@drawable/ic_draw"
             android:label="@string/nota_rapida"
@@ -131,7 +138,7 @@
             android:authorities="${applicationId}.file"
             android:exported="false"
             android:grantUriPermissions="true">
-            <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/percorsi_condivisi" />
+            <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/shared_paths" />
         </provider>
 
         <!-- WorkManager (backup automatico) parte su richiesta: TrattoApp e' il suo Configuration.Provider. -->

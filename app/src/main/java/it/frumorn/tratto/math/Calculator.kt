@@ -1,0 +1,344 @@
+package it.frumorn.tratto.math
+
+import android.content.Context
+import it.frumorn.tratto.data.Penna
+import it.frumorn.tratto.data.Tratto
+import it.frumorn.tratto.handwriting.NeatHandwriting
+import it.frumorn.tratto.handwriting.Stile
+import it.frumorn.tratto.handwriting.Transcriber
+import kotlinx.coroutines.CancellationException
+import kotlin.math.abs
+
+/**
+ * Il risultato di una nota matematica: l'espressione letta (per esempio "3×(4+5)", "(1+2)/3",
+ * "2^10"), il valore scritto all'italiana ("27", "0,333333") e i tratti da aggiungere alla
+ * pagina, a destra dell'uguale.
+ */
+data class Risultato(val espressione: String, val valore: String, val tratti: List<Tratto>) {
+    /** Riquadro della formula letta (uguale compreso), in coordinate di pagina: [sinistra, alto, destra, basso]. */
+    var riquadro: FloatArray = FloatArray(4)
+        internal set
+}
+
+/**
+ * Un calcolo riconosciuto mentre si scrive, da proporre prima che lo si chiuda con l'uguale (o se
+ * l'uguale scritto non ha dato risultato). [fine] e [asse] sono in coordinate di pagina: dove
+ * finisce la formula e la sua linea di mezzo; [altezza] e' quella delle cifre.
+ */
+class Suggerimento internal constructor(
+    val espressione: String,
+    val valore: String,
+    /** L'uguale c'e' gia': si scrive solo il risultato. */
+    val conUguale: Boolean,
+    internal val raccolta: FormulaInk,
+    internal val riga: Riga,
+) {
+    val fine: Float get() = if (conUguale) raccolta.uguale.dx else raccolta.forme.maxOf { it.dx }
+    val asse: Float get() = raccolta.uguale.asse
+    val altezza: Float get() = raccolta.h
+
+    /** Riquadro della formula (e dell'uguale, se c'e'), in coordinate di pagina: [sinistra, alto, destra, basso]. */
+    val riquadro: FloatArray get() = riquadroDi(if (conUguale) raccolta.forme + raccolta.uguale.forme else raccolta.forme)
+}
+
+internal fun riquadroDi(forme: List<InkShape>): FloatArray =
+    floatArrayOf(forme.minOf { it.sx }, forme.minOf { it.alto }, forme.maxOf { it.dx }, forme.maxOf { it.basso })
+
+/**
+ * Note matematiche: quando si scrive un'espressione seguita da "=", si legge l'espressione, la
+ * si calcola e si scrive il risultato dopo l'uguale con la bella scrittura.
+ *
+ * Tutto parte da [dopoTratto], da chiamare a ogni tratto finito. Il controllo dell'uguale e' solo
+ * geometrico (due trattini orizzontali uno sopra l'altro, scritti di seguito entro 2,5 secondi,
+ * oppure un tratto solo a zeta schiacciata): la scrittura normale non passa mai da ML Kit. Poi si
+ * raccolgono i tratti della formula a sinistra ([Raccoglitore]), se ne trova la struttura
+ * ([Structure]) e ML Kit legge solo i pezzi lineari ([Reading]). Se il testo letto non e' una
+ * formula numerica con almeno un'operazione (per esempio "vincoli con =") non succede niente;
+ * lo stesso con un calcolo impossibile (divisione per zero, radice di un negativo).
+ *
+ * Si capiscono: + − × (x, *, ·) : ÷ /, parentesi, virgola decimale, prodotto implicito (2(3+4),
+ * 2π), frazioni con la barra (anche una dentro l'altra), esponenti in alto a destra (anche dopo
+ * una parentesi chiusa), radici con la barra nello stesso tratto o in un tratto a parte, radici
+ * senza barra davanti a un numero o a una parentesi, π, %.
+ *
+ * ML Kit non ha un modello per la matematica (gli identificatori sono lingue, "zxx-Zsym-x-shapes",
+ * "zxx-Zsym-x-autodraw" ed emoji): si usa il modello italiano della trascrizione, che legge bene
+ * cifre e segni e non richiede un secondo download. Se il modello non c'e' non si calcola niente.
+ */
+object Calculator {
+    /** Tratti finiti di recente: id e momento in cui [dopoTratto] li ha visti. */
+    private val recenti = ArrayDeque<Pair<Long, Long>>()
+
+    /** Id dei tratti che hanno chiuso un uguale gia' considerato: mai due volte lo stesso uguale. */
+    private val gestiti = ArrayDeque<Long>()
+
+    /** Millisecondi monotoni (sostituibile nei test). */
+    internal var orologio: () -> Long = { System.nanoTime() / 1_000_000 }
+
+    /**
+     * Da chiamare quando [nuovi] sono appena stati aggiunti alla pagina, i cui tratti sono tutti in
+     * [tratti] (nuovi compresi). Se l'ultimo tratto nuovo completa un "=" alla fine di una formula,
+     * restituisce il risultato da aggiungere alla pagina; altrimenti null. Va chiamata fuori dal
+     * main thread: se c'e' un uguale usa ML Kit. [idNuovo] da' gli id per i tratti del risultato.
+     */
+    suspend fun dopoTratto(context: Context, tratti: List<Tratto>, nuovi: List<Tratto>, stile: Stile, idNuovo: () -> Long): Risultato? {
+        traccia { "dopoTratto: ${nuovi.size} nuovi su ${tratti.size}" }
+        val raccolta = trova(tratti, nuovi, orologio())
+            ?: confermaConMlKit(context, tratti, nuovi)
+            ?: return null.also { traccia { "nessun uguale" } }
+        val riga = Structure.analizza(raccolta.forme, raccolta.h)
+        traccia { "uguale trovato: ${raccolta.forme.size} tratti, schema ${Reading.schema(riga).parti.joinToString("") { if (it is Reading.Fissa) it.testo else "□" }}" }
+        if (Reading.banale(riga)) return null
+        if (Structure.ambigua(riga)) return null.also { traccia { "simboli uno sopra l'altro senza struttura: niente risultato" } }
+        return try {
+            if (!Transcriber.modelloPronto(context)) return null
+            NeatHandwriting.prepara(context)
+            calcola(raccolta, riga, stile, idNuovo) { t, pre, h ->
+                Transcriber.candidati(context, t, pre, h).also { c -> traccia { "letti (${t.size} tratti): ${c.take(5)}" } }
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /**
+     * Un calcolo scritto e non ancora chiuso dall'uguale: se la riga dell'ultimo tratto e' una
+     * formula con un'operazione, il risultato da proporre accanto. Va chiamata fuori dal main
+     * thread (usa ML Kit), dopo una pausa nella scrittura.
+     */
+    suspend fun suggerisci(context: Context, tratti: List<Tratto>, ultimo: Tratto): Suggerimento? {
+        if (!Transcriber.modelloPronto(context)) return null
+        NeatHandwriting.prepara(context)
+        return suggerisci(tratti, ultimo) { t, pre, h -> Transcriber.candidati(context, t, pre, h) }
+    }
+
+    /** Come [suggerisci], con il lettore dato: per i test sulla JVM. */
+    internal suspend fun suggerisci(tratti: List<Tratto>, ultimo: Tratto, lettore: Lettore): Suggerimento? {
+        if (ultimo.penna == Penna.EVIDENZIATORE || ultimo.quanti < 2 || risultato(ultimo)) return null
+        val pagina = tratti.filter { it.penna != Penna.EVIDENZIATORE && it.quanti > 0 }.map { InkShape(it) }
+        val f = pagina.firstOrNull { it.id == ultimo.id } ?: return null
+        // Altezza di riferimento: quella dei simboli vicini, se l'ultimo tratto e' un trattino.
+        val h0 = maxOf(f.altezza, pagina.filter { it.dx >= f.sx - 150f && it.sx <= f.dx && abs(it.cy - f.cy) <= 60f && !it.piatto(12f) }.maxOfOrNull { it.altezza } ?: 0f, 12f)
+        // Un risultato gia' scritto su questa riga, a destra: il calcolo e' fatto.
+        if (pagina.any { risultato(it.tratto) && it.sx > f.sx && it.alto <= f.basso + 0.5f * h0 && it.basso >= f.alto - 0.5f * h0 }) return null
+        // Se l'ultimo tratto chiude un uguale (non riconosciuto come formula), si parte da quello;
+        // se no da un uguale immaginario subito a destra dell'ultimo tratto, sul suo asse.
+        // L'uguale e' l'ultimo tratto con quello scritto subito prima: due barre, o due trattini
+        // piccoli uno sopra l'altro (se no quelle due lineette si leggerebbero come un 5).
+        val iUltimo = tratti.indexOfFirst { it.id == ultimo.id }
+        val prima = tratti.getOrNull(iUltimo - 1)?.let { t -> pagina.firstOrNull { it.id == t.id } }
+        val hVicine = pagina.filter { it.id != f.id && it.id != prima?.id && it.dx >= f.sx - 150f && it.sx <= f.dx && abs(it.cy - f.cy) <= 60f && !it.piatto(12f) }
+            .maxOfOrNull { it.altezza } ?: h0
+        val partner = prima?.takeIf {
+            (RilevaUguale.barra(f) && RilevaUguale.dueTratti(it, f, hVicine)) || RilevaUguale.forseUguale(it, f, hVicine)
+        }
+        val u = if (partner != null) EqualsSign(listOf(partner, f)) else {
+            // L'asse della riga dai simboli vicini all'ultimo tratto, non dal tratto stesso: la
+            // barretta in alto di un 7 o un esponente lo sposterebbero.
+            val riga = pagina.filter {
+                !it.piatto(h0) && it.dx >= f.sx - 4f * h0 && it.sx <= f.dx + 0.5f * h0 && it.basso >= f.alto - 0.5f * h0 && it.alto <= f.basso + 0.5f * h0
+            }
+            val cifre = riga.filter { it.altezza >= 0.5f * riga.maxOf { r -> r.altezza } }
+            val asse = if (cifre.isEmpty()) f.cy else mediana(cifre.map { it.cy })
+            val x = maxOf(f.dx, riga.maxOfOrNull { it.dx } ?: f.dx) + 0.25f * h0
+            val barra = FloatArray(2 * Tratto.CAMPI).also { p ->
+                p[0] = x; p[1] = asse; p[2] = 0.5f; p[3] = -1f; p[4] = -1f
+                p[Tratto.CAMPI] = x + 0.5f * h0; p[Tratto.CAMPI + 1] = asse; p[Tratto.CAMPI + 2] = 0.5f; p[Tratto.CAMPI + 3] = -1f; p[Tratto.CAMPI + 4] = -1f
+            }
+            EqualsSign(listOf(InkShape(Tratto(-1L, ultimo.penna, ultimo.colore, ultimo.spessore, barra))))
+        }
+        val raccolta = Raccoglitore.raccogli(pagina, u) ?: return null
+        // L'ultimo tratto deve far parte della formula (o dell'uguale): un segno staccato altrove no.
+        if (partner == null && raccolta.forme.none { it.id == f.id || sovrapposizioneX(it, f) > 0f && distanzaY(it, f) <= 0.3f * raccolta.h }) return null
+        val riga = Structure.analizza(raccolta.forme, raccolta.h)
+        if (Reading.banale(riga) || Structure.ambigua(riga)) return null
+        val formula = Reading.leggi(riga, lettore) ?: return null
+        val valore = formula.nodo.valuta() ?: return null
+        traccia { "suggerimento: ${formula.nodo.stampa()} = ${ParsedNumber.formatta(valore)}" }
+        return Suggerimento(formula.nodo.stampa(), ParsedNumber.formatta(valore), partner != null, raccolta, riga)
+    }
+
+    /** I tratti di "= risultato" (o solo del risultato, se l'uguale c'e' gia') per un [Suggerimento] accettato. */
+    fun scriviSuggerimento(s: Suggerimento, stile: Stile, idNuovo: () -> Long): List<Tratto> {
+        val hCifre = s.raccolta.h
+        return if (s.conUguale) scrivi(s.valore, s.riga, s.raccolta, stile, idNuovo)
+        else scrivi("= " + s.valore, s.riga, s.raccolta, stile, idNuovo, x = s.fine + 0.4f * hCifre)
+    }
+
+    internal fun tracciaPubblica(messaggio: () -> String) = traccia(messaggio)
+
+    /** Diagnostica nel logcat (tag TrattoCalcolo); non fa niente sulla JVM dei test. */
+    private inline fun traccia(messaggio: () -> String) {
+        runCatching { android.util.Log.d("TrattoCalcolo", messaggio()) }
+    }
+
+    /**
+     * Due trattini che per la forma potrebbero essere un uguale scritto male: li si fa leggere a
+     * ML Kit, e se tra le prime letture c'e' "=" lo sono.
+     */
+    private suspend fun confermaConMlKit(context: Context, tratti: List<Tratto>, nuovi: List<Tratto>): FormulaInk? {
+        val ultimo = nuovi.lastOrNull() ?: return null
+        val (a, b) = prendiIncerto(ultimo) ?: return null
+        if (!Transcriber.modelloPronto(context)) return null
+        val fa = InkShape(a)
+        val fb = InkShape(b)
+        val h = maxOf(fa.altezza, fb.altezza, fa.larghezza, fb.larghezza) * 2f
+        val letti = Transcriber.candidati(context, listOf(a, b), "", h)
+        traccia { "uguale incerto letto: ${letti.take(3)}" }
+        if (letti.take(3).none { it.trim() == "=" }) return null
+        return completa(tratti, nuovi, ultimo, EqualsSign(listOf(fa, fb)))
+    }
+
+    /** Come [dopoTratto], con il lettore e l'ora dati: per i test sulla JVM. */
+    internal suspend fun dopoTratto(
+        tratti: List<Tratto>,
+        nuovi: List<Tratto>,
+        stile: Stile,
+        idNuovo: () -> Long,
+        lettore: Lettore,
+        adesso: Long,
+    ): Risultato? {
+        val raccolta = trova(tratti, nuovi, adesso) ?: return null
+        val riga = Structure.analizza(raccolta.forme, raccolta.h)
+        if (Reading.banale(riga) || Structure.ambigua(riga)) return null
+        return calcola(raccolta, riga, stile, idNuovo, lettore)
+    }
+
+    /** Dimentica i tratti recenti e gli uguali gia' visti (per i test). */
+    internal fun azzera() = synchronized(this) {
+        recenti.clear()
+        gestiti.clear()
+    }
+
+    /** Un uguale appena completato con la formula alla sua sinistra, o null: solo geometria. */
+    internal fun trova(tratti: List<Tratto>, nuovi: List<Tratto>, adesso: Long): FormulaInk? {
+        val precedente: Long?
+        synchronized(this) {
+            for (t in nuovi) recenti.addLast(t.id to adesso)
+            while (recenti.size > 32) recenti.removeFirst()
+            val ultimo = nuovi.lastOrNull() ?: return null
+            val i = recenti.indexOfLast { it.first == ultimo.id }
+            precedente = if (i > 0 && adesso - recenti[i - 1].second <= RilevaUguale.FINESTRA_MS) recenti[i - 1].first else null
+        }
+        val ultimo = nuovi.last()
+        if (ultimo.penna == Penna.EVIDENZIATORE || ultimo.quanti < 2) return null
+        val f2 = InkShape(ultimo)
+        traccia { "ultimo: w=${f2.larghezza} h=${f2.altezza} orizz=${f2.orizzontale} punti=${ultimo.quanti} prec=$precedente" }
+        val uguale = when {
+            RilevaUguale.barra(f2) -> {
+                val t1 = precedente?.let { id -> tratti.firstOrNull { it.id == id } ?: nuovi.firstOrNull { it.id == id } }
+                    ?: return null.also { traccia { "barra senza precedente (prec=$precedente)" } }
+                if (t1.penna == Penna.EVIDENZIATORE) return null
+                val f1 = InkShape(t1)
+                // L'altezza delle cifre a sinistra dice quanto possono stare lontane le barre.
+                val hRiga = Raccoglitore.stimaAltezza(
+                    tratti.filter { it.id != t1.id && it.id != ultimo.id && it.penna != Penna.EVIDENZIATORE && it.quanti > 0 }.map { InkShape(it) },
+                    EqualsSign(listOf(f1, f2)),
+                )
+                if (!RilevaUguale.dueTratti(f1, f2, hRiga)) return null.also {
+                    traccia { "due barre scartate: w1=${f1.larghezza} w2=${f2.larghezza} h1=${f1.altezza} h2=${f2.altezza} dy=${f1.cy - f2.cy} or1=${f1.orizzontale}" }
+                    if (RilevaUguale.forseUguale(f1, f2, hRiga)) segnaIncerto(t1, ultimo)
+                }
+                EqualsSign(listOf(f1, f2))
+            }
+            RilevaUguale.unTratto(f2) -> EqualsSign(listOf(f2))
+            else -> {
+                // Anche l'ultimo tratto non sembra una barra: se con il precedente fa una coppia
+                // di trattini piccoli, lo decidera' ML Kit.
+                val t1 = precedente?.let { id -> tratti.firstOrNull { it.id == id } ?: nuovi.firstOrNull { it.id == id } }
+                if (t1 != null && t1.penna != Penna.EVIDENZIATORE) {
+                    val f1 = InkShape(t1)
+                    val hRiga = Raccoglitore.stimaAltezza(
+                        tratti.filter { it.id != t1.id && it.id != ultimo.id && it.penna != Penna.EVIDENZIATORE && it.quanti > 0 }.map { InkShape(it) },
+                        EqualsSign(listOf(f1, f2)),
+                    )
+                    if (RilevaUguale.forseUguale(f1, f2, hRiga)) segnaIncerto(t1, ultimo)
+                }
+                return null
+            }
+        }
+        return completa(tratti, nuovi, ultimo, uguale)
+    }
+
+    /** L'ultima coppia di trattini che la forma non ha saputo dire uguale: la puo' confermare ML Kit. */
+    private var incerto: Pair<Tratto, Tratto>? = null
+
+    private fun segnaIncerto(a: Tratto, b: Tratto) = synchronized(this) { incerto = a to b }
+
+    /** La coppia incerta finita con [ultimo], se c'e' (e la si dimentica). */
+    internal fun prendiIncerto(ultimo: Tratto): Pair<Tratto, Tratto>? = synchronized(this) {
+        incerto.also { incerto = null }?.takeIf { it.second.id == ultimo.id }
+    }
+
+    /** Dall'uguale trovato alla formula alla sua sinistra. */
+    internal fun completa(tratti: List<Tratto>, nuovi: List<Tratto>, ultimo: Tratto, uguale: EqualsSign): FormulaInk? {
+        val pagina = (tratti + nuovi).distinctBy { it.id }.filter { it.penna != Penna.EVIDENZIATORE && it.quanti > 0 }.map { InkShape(it) }
+        if (!RilevaUguale.libero(uguale, pagina)) return null.also { traccia { "uguale non libero" } }
+        synchronized(this) {
+            if (ultimo.id in gestiti) return null
+            gestiti.addLast(ultimo.id)
+            while (gestiti.size > 64) gestiti.removeFirst()
+        }
+        return Raccoglitore.raccogli(pagina, uguale)
+    }
+
+    /** ML Kit legge i pezzi lineari di [riga], la formula si calcola e il risultato si scrive. */
+    private suspend fun calcola(raccolta: FormulaInk, riga: Riga, stile: Stile, idNuovo: () -> Long, lettore: Lettore): Risultato? {
+        val formula = Reading.leggi(riga, lettore) ?: return null
+        val valore = formula.nodo.valuta() ?: return null
+        val testo = ParsedNumber.formatta(valore)
+        return Risultato(formula.nodo.stampa(), testo, scrivi(testo, riga, raccolta, stile, idNuovo))
+            .also { it.riquadro = riquadroDi(raccolta.forme + raccolta.uguale.forme) }
+    }
+
+    /**
+     * Il risultato in bella scrittura subito a destra dell'uguale, con le cifre alte come quelle
+     * della formula, sulla stessa linea di base delle cifre della riga principale (o centrato
+     * sull'asse dell'uguale se la riga principale ha solo frazioni), con colore, penna e
+     * spessore dell'uguale.
+     */
+    private fun scrivi(testo: String, riga: Riga, raccolta: FormulaInk, stile: Stile, idNuovo: () -> Long, x: Float? = null): List<Tratto> {
+        val u = raccolta.uguale
+        val alti = riga.gruppiNormali().filter {
+            it.speciale == null && it.altezza >= 0.5f * riga.h && it.altezza >= 0.3f * it.larghezza && it.forme.singleOrNull()?.parentesi != true
+        }
+        val hCifre = if (alti.isNotEmpty()) mediana(alti.map { it.altezza }) else raccolta.h
+        val principali = riga.voci.map { it.elemento }.filterIsInstance<Gruppo>()
+            .filter { it.speciale == null && it.altezza in 0.7f * hCifre..1.3f * hCifre }
+        val base = if (principali.isNotEmpty()) mediana(principali.map { it.basso }) else u.asse + 0.5f * hCifre
+        val altezzaX = (hCifre / rapportoCifre(stile)).coerceAtLeast(2f)
+        val inizio = x ?: (u.dx + 0.35f * hCifre)
+        val y = base - NeatHandwriting.ascesa(stile, altezzaX)
+        val modello = u.ultimo
+        val tratti = NeatHandwriting.componi(testo, stile, inizio, y, altezzaX, 0f, modello.colore, modello.penna, modello.spessore, idNuovo)
+        for (t in tratti) for (i in 0 until t.quanti) t.punti[i * Tratto.CAMPI + 4] = ORIENTAMENTO_RISULTATO
+        return tratti
+    }
+
+    /**
+     * L'orientamento della penna nei tratti dei risultati: un valore impossibile (quelli veri
+     * vanno da 0 a 2π, -1 vuol dire "non misurato") che resta salvato con la nota e che il
+     * disegno tratta come "non misurato". Serve a riconoscere un risultato scritto prima, anche
+     * dopo aver riaperto la nota: non entra nella formula seguente sulla stessa riga
+     * ("3+4=7  2+2=" non diventa 72+2).
+     */
+    internal const val ORIENTAMENTO_RISULTATO = -2f
+
+    /** Vero se [t] e' un risultato scritto dalle note matematiche. */
+    internal fun risultato(t: Tratto): Boolean = t.quanti > 0 && t.punti[4] == ORIENTAMENTO_RISULTATO
+
+    private val rapporti = HashMap<Stile, Float>()
+
+    /** Altezza delle cifre del font diviso l'altezza delle minuscole (circa 1,5). */
+    internal fun rapportoCifre(stile: Stile): Float = synchronized(rapporti) {
+        rapporti.getOrPut(stile) {
+            val altezze = ('0'..'9').mapNotNull { c ->
+                val tratti = NeatHandwriting.componi(c.toString(), stile, 0f, 0f, 100f, 0f, 0, Penna.PENNA, 1f) { 0L }
+                if (tratti.isEmpty()) null else unione(tratti.map { InkShape(it) }).altezza
+            }
+            if (altezze.isEmpty()) 1.5f else (mediana(altezze) / 100f).coerceIn(0.8f, 3f)
+        }
+    }
+}

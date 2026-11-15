@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Genera app/src/completa/assets/scrittura/hershey.bin, i font a tratto singolo della "bella scrittura".
+"""Genera app/src/completa/assets/handwriting/hershey.bin, i font a tratto singolo della "bella scrittura".
 
 Prende i glifi ASCII 32..126 di due font Hershey dal pacchetto Python Hershey-Fonts
 (pip install Hershey-Fonts):
-  - "cursive"  -> corsivo (lo stesso usato da tools/penna.py per simulare la scrittura a mano);
+  - "cursive"  -> corsivo (lo stesso usato da tools/pen.py per simulare la scrittura a mano);
   - "futural"  -> stampatello (Futura light: lettere identiche a "rowmans", punteggiatura
                   piu' stretta e vicina alla lettera, come quando si scrive a mano).
 
@@ -30,7 +30,7 @@ from HersheyFonts import HersheyFonts
 
 FONT = [(0, "cursive"), (1, "futural")]
 PRIMO, ULTIMO = 32, 126
-USCITA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "src", "completa", "assets", "scrittura", "hershey.bin")
+USCITA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "src", "completa", "assets", "handwriting", "hershey.bin")
 
 
 def i8(v):

@@ -127,7 +127,7 @@ export ANDROID_HOME=$HOME/Android/Sdk
 ./gradlew :app:testCompletaDebugUnitTest
 ```
 
-`tools/installa.sh` builds, installs on the connected tablet and precompiles the app with `cmd package compile -m speed`. `tools/penna.py` simulates the S Pen (pressure, tilt, button, cursive handwriting) by writing events to `/dev/input`: that is how Tratto gets tested without touching the tablet.
+`tools/install.sh` builds, installs on the connected tablet and precompiles the app with `cmd package compile -m speed`. `tools/pen.py` simulates the S Pen (pressure, tilt, button, cursive handwriting) by writing events to `/dev/input`: that is how Tratto gets tested without touching the tablet.
 
 The code, comments and commit messages are in Italian.
 

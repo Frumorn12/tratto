@@ -10,26 +10,26 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.core.content.IntentCompat
 import it.frumorn.tratto.data.DoppioClic
-import it.frumorn.tratto.data.Preferenze
-import it.frumorn.tratto.editor.TastoPenna
-import it.frumorn.tratto.ui.LuceStabile
+import it.frumorn.tratto.data.Preferences
+import it.frumorn.tratto.editor.PenButton
+import it.frumorn.tratto.ui.SteadyLight
 import it.frumorn.tratto.ui.App
 import it.frumorn.tratto.ui.Schermata
-import it.frumorn.tratto.ui.StatoApp
-import it.frumorn.tratto.ui.editor.SessioneEditor
+import it.frumorn.tratto.ui.AppState
+import it.frumorn.tratto.ui.editor.EditorSession
 import it.frumorn.tratto.ui.theme.TrattoTheme
 
 class MainActivity : ComponentActivity() {
-    private lateinit var stato: StatoApp
-    private var sessione: SessioneEditor? = null
-    private val tasto = TastoPenna { doppioClic() }
-    private val luce = LuceStabile(this) { stato.preferenze.luceStabile }
+    private lateinit var stato: AppState
+    private var sessione: EditorSession? = null
+    private val tasto = PenButton { doppioClic() }
+    private val luce = SteadyLight(this) { stato.preferenze.luceStabile }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge(statusBarStyle = SystemBarStyle.auto(0, 0), navigationBarStyle = SystemBarStyle.auto(0, 0))
         super.onCreate(savedInstanceState)
-        val preferenze = Preferenze(this)
-        stato = StatoApp(applicationContext, TrattoApp.archivio(this), preferenze)
+        val preferenze = Preferences(this)
+        stato = AppState(applicationContext, TrattoApp.archivio(this), preferenze)
         stato.caricaIndice()
         if (savedInstanceState == null) gestisci(intent)
         setContent {
@@ -45,7 +45,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun gestisci(i: Intent?) {
-        if (i?.component?.className?.endsWith(".NuovaNota") == true) { stato.nuovaNota(origine = "penna"); return }
+        if (i?.component?.className?.endsWith(".NewNote") == true) { stato.nuovaNota(origine = "penna"); return }
         when (i?.action) {
             AZIONE_NUOVA_NOTA, Intent.ACTION_ASSIST, Intent.ACTION_CREATE_NOTE -> stato.nuovaNota(origine = "penna")
             // "Apri in Tratto" dalla nota rapida: la nota e' gia' salvata, si apre nell'editor.

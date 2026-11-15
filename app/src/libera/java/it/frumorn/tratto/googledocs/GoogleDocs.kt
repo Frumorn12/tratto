@@ -2,7 +2,7 @@ package it.frumorn.tratto.googledocs
 
 import android.content.Context
 import it.frumorn.tratto.editor.DocumentoAperto
-import it.frumorn.tratto.editor.LivelloDocumento
+import it.frumorn.tratto.editor.DocumentLayer
 import it.frumorn.tratto.editor.SpostamentoTratti
 import kotlinx.coroutines.CoroutineScope
 
@@ -25,7 +25,7 @@ object GoogleDocs {
         context: Context,
         notaId: String,
         scope: CoroutineScope,
-        mostra: (LivelloDocumento) -> Unit,
+        mostra: (DocumentLayer) -> Unit,
         segui: (List<SpostamentoTratti>) -> Unit,
     ): DocumentoAperto? = null
 }

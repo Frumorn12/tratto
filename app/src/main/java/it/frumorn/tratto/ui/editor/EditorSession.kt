@@ -1,0 +1,546 @@
+package it.frumorn.tratto.ui.editor
+
+import android.content.Context
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import it.frumorn.tratto.data.NotaInfo
+import it.frumorn.tratto.data.Sfondo
+import it.frumorn.tratto.editor.Preview
+import it.frumorn.tratto.editor.Delay
+import it.frumorn.tratto.editor.Document
+import it.frumorn.tratto.editor.EditorView
+import it.frumorn.tratto.editor.StatoStrumenti
+import it.frumorn.tratto.editor.SheetView
+import it.frumorn.tratto.data.Penna
+import it.frumorn.tratto.googledocs.GoogleDocs
+import it.frumorn.tratto.handwriting.NeatHandwriting
+import it.frumorn.tratto.handwriting.Stile
+import it.frumorn.tratto.handwriting.Transcriber
+import it.frumorn.tratto.pdf.PdfBackground
+import it.frumorn.tratto.ui.AppState
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+
+/**
+ * Una nota aperta: tiene la vista di scrittura, gli strumenti e i salvataggi.
+ * I tratti si salvano un secondo dopo l'ultima modifica (al massimo due secondi dopo la prima non
+ * salvata, anche scrivendo senza fermarsi) e comunque alla chiusura.
+ */
+class EditorSession(private val stato: AppState, val id: String, context: Context) {
+    val vista = EditorView(context)
+    var documento by mutableStateOf<Document?>(null)
+        private set
+    var strumenti by mutableStateOf(stato.preferenze.strumenti())
+        private set
+    var puoAnnullare by mutableStateOf(false)
+        private set
+    var puoRipetere by mutableStateOf(false)
+        private set
+    var pagina by mutableIntStateOf(0)
+        private set
+    var pagine by mutableIntStateOf(1)
+        private set
+    var selezione by mutableStateOf(false)
+        private set
+    var ultimoScorrimento by mutableStateOf(0L)
+        private set
+    var titolo by mutableStateOf("")
+        private set
+
+    /** L'oggetto (immagine o casella di testo) selezionato con un tocco, per la sua barra. */
+    var oggetto by mutableStateOf<it.frumorn.tratto.data.Oggetto?>(null)
+        private set
+    /** Cresce a ogni cambio dell'oggetto selezionato, anche quando resta uguale (ordine di disegno). */
+    var versioneOggetto by mutableIntStateOf(0)
+        private set
+    /** Il campo della casella di testo che si sta scrivendo, o null. */
+    var campoTesto by mutableStateOf<it.frumorn.tratto.editor.TextField?>(null)
+        private set
+    /** Il formato sotto il cursore della casella in modifica (per i pulsanti della barra del testo). */
+    var formato by mutableStateOf(it.frumorn.tratto.data.Formato())
+        private set
+    /** Dove si e' tenuto premuto il dito (sullo schermo) per il menu incolla/inserisci, o null. */
+    var menuContestuale by mutableStateOf<androidx.compose.ui.geometry.Offset?>(null)
+    /** Dove si tiene premuto il tasto dello stilo a mezz'aria, per il menu degli strumenti. */
+    var menuStilo by mutableStateOf<androidx.compose.ui.geometry.Offset?>(null)
+    /** Il dito scrive come la penna (preferenza, cambiata dalla tavolozza). */
+    var disegnaConDita by mutableStateOf(stato.preferenze.disegnaConDita)
+        private set
+
+    private var pdf: PdfBackground? = null
+    /** Il documento Google collegato, disegnato sotto l'inchiostro e aggiornato dal vivo (solo versione completa). */
+    private var documentoEsterno: it.frumorn.tratto.editor.DocumentoAperto? = null
+    private var salvataggio: Job? = null
+    /** Quando e' arrivata la prima modifica non ancora salvata (0 se e' tutto salvato). Solo sul thread principale. */
+    private var nonSalvataDa = 0L
+    private var chiusa = false
+
+    /** Il risultato proposto accanto a un calcolo non ancora chiuso dall'uguale. */
+    val suggerimento = CalculationHint(context.applicationContext, stato.preferenze, stato.scope)
+
+    init {
+        vista.strumenti = strumenti
+        vista.disegnaConDita = stato.preferenze.disegnaConDita
+        // Ogni modifica (anche la gomma o il lazo) toglie il suggerimento: se serve lo ripropone il tratto nuovo.
+        vista.alTratto = { suggerimento.nascondi(); aggiornaStato(); programmaSalvataggio() }
+        vista.alCambioSelezione = {
+            selezione = it
+            // Senza selezione il pannello della trascrizione non ha piu' senso.
+            if (!it && trascrizione !is Trascrizione.InCorso) trascrizione = null
+        }
+        vista.alCambioPagina = { pagina = it; ultimoScorrimento = System.currentTimeMillis() }
+        vista.alTrattiFiniti = { p, nuovi -> calcola(p, nuovi) }
+        vista.alTiraPagina = { aggiungiPagina() }
+        vista.alPennaGiu = { suggerimento.nascondi(); menuStilo = null }
+        vista.alMovimento = { if (suggerimento.proposta != null) suggerimento.nascondi() }
+        vista.alCambioOggetto = { oggetto = it; versioneOggetto++ }
+        vista.alCampoTesto = { c ->
+            campoTesto = c
+            if (c != null) {
+                c.alCambioFormato = { formato = it }
+                formato = c.formato()
+            }
+        }
+        vista.alPressioneLunga = { x, y -> menuContestuale = androidx.compose.ui.geometry.Offset(x, y) }
+        vista.alMenuStilo = { x, y -> menuStilo = androidx.compose.ui.geometry.Offset(x, y) }
+        applicaColori()
+    }
+
+    /** Accende o spegne "disegna con il dito" (un dito scrive, due scorrono e zoomano). */
+    fun alternaDita() {
+        val v = !disegnaConDita
+        disegnaConDita = v
+        vista.disegnaConDita = v
+        stato.preferenze.impostaDita(v)
+    }
+
+    /** Oggetti della pagina: immagini, caselle di testo, appunti (vedi OggettiSessione.kt). */
+    val oggetti = SessionObjects(this, stato, context.applicationContext)
+
+    fun applicaColori(scuro: Boolean = false, carta: Int = 0xFFFFFFFF.toInt(), scrivania: Int = 0xFFF2F2F4.toInt(), righe: Int = 0xFFD9D6EC.toInt()) {
+        vista.foglio.colorePagina = carta
+        vista.foglio.coloreScrivania = scrivania
+        vista.foglio.coloreRighe = righe
+        vista.foglio.coloreAccento = if (scuro) 0xFFA491FA.toInt() else 0xFF6546F3.toInt()
+        vista.foglio.invalidate()
+    }
+
+    fun apri() {
+        stato.scope.launch {
+            val doc = withContext(Dispatchers.IO) {
+                stato.archivio.caricaIndice()
+                val info: NotaInfo = stato.archivio.note.value.find { it.id == id } ?: return@withContext null
+                Document(stato.archivio, info).also { d ->
+                    d.apri()
+                    val f = stato.archivio.filePdf(id)
+                    if (f.exists()) pdf = runCatching { PdfBackground(f) { vista.foglio.postInvalidate() } }.getOrNull()
+                    // La prima pagina subito, cosi' il primo fotogramma e' gia' completo.
+                    d.pagine.firstOrNull()?.let { d.caricaTratti(it) }
+                }
+            } ?: return@launch
+            if (chiusa) return@launch
+            titolo = doc.info.titolo
+            vista.foglio.pdf = pdf
+            vista.documento = doc
+            doc.alCambio = { aggiornaStato() }
+            documento = doc
+            aggiornaStato()
+            documentoEsterno = GoogleDocs.apri(
+                contesto, id, stato.scope,
+                mostra = { l -> vista.post { mostraDocumento(l) } },
+                segui = { mosse -> vista.post { seguiDocumento(mosse) } },
+            )
+            vista.documentoEsterno = documentoEsterno
+            vista.post { vista.preriscalda() }
+            // Le altre pagine in sottofondo, a partire da quelle vicine.
+            withContext(Dispatchers.IO) {
+                for (p in doc.pagine) {
+                    if (chiusa) break
+                    if (!p.caricata) { doc.caricaTratti(p); vista.post { vista.ridisegna() } }
+                }
+            }
+        }
+    }
+
+    /** Il documento collegato e' (di nuovo) impaginato: le pagine della nota lo seguono. */
+    private fun mostraDocumento(l: it.frumorn.tratto.editor.DocumentLayer) {
+        if (chiusa) return
+        val d = documento ?: return
+        vista.foglio.livello = l
+        if (d.adattaPagine(l.pagine, l.altezza)) {
+            vista.ridisegna()
+            vista.foglio.limita()
+            aggiornaStato()
+            programmaSalvataggio()
+        }
+    }
+
+    /** Nel documento collegato qualche disegno si e' mosso o e' sparito: l'inchiostro lo segue. */
+    private fun seguiDocumento(mosse: List<it.frumorn.tratto.editor.SpostamentoTratti>) {
+        if (chiusa) return
+        val d = documento ?: return
+        var cambiato = false
+        for (m in mosse) if (d.spostaTratti(m)) cambiato = true
+        if (!cambiato) return
+        vista.chiudiSelezione()
+        vista.ridisegna()
+        programmaSalvataggio()
+    }
+
+    /** L'app torna in primo piano. */
+    fun riprendi() {
+        documentoEsterno?.riprendi()
+    }
+
+    private fun aggiornaStato() {
+        val d = documento ?: return
+        puoAnnullare = d.puoAnnullare
+        puoRipetere = d.puoRipetere
+        pagine = d.pagine.size
+        pagina = vista.foglio.paginaCorrente()
+    }
+
+    fun cambiaStrumenti(nuovo: StatoStrumenti) {
+        strumenti = nuovo
+        vista.strumenti = nuovo
+        stato.preferenze.salvaStrumenti(nuovo)
+    }
+
+    /** Passa dalla gomma all'ultima penna e viceversa (azione del doppio clic, se scelta). */
+    fun alternaGomma() {
+        val st = strumenti
+        cambiaStrumenti(st.copy(strumento = if (st.strumento == it.frumorn.tratto.editor.Strumento.GOMMA) it.frumorn.tratto.editor.Strumento.PENNA else it.frumorn.tratto.editor.Strumento.GOMMA))
+    }
+
+    fun annulla() {
+        suggerimento.nascondi()
+        // Una casella aperta si chiude prima: "annulla" toglie poi tutto quello che ci si e' scritto.
+        vista.chiudiTesto()
+        documento?.annulla()
+        vista.chiudiSelezione()
+        vista.deselezionaOggetto()
+        vista.ridisegna()
+        aggiornaStato()
+        programmaSalvataggio()
+    }
+
+    fun ripeti() {
+        suggerimento.nascondi()
+        vista.chiudiTesto()
+        documento?.ripeti()
+        vista.chiudiSelezione()
+        vista.deselezionaOggetto()
+        vista.ridisegna()
+        aggiornaStato()
+        programmaSalvataggio()
+    }
+
+    fun aggiungiPagina() {
+        val d = documento ?: return
+        d.aggiungiPagina(d.pagine.lastIndex)
+        vista.ridisegna()
+        aggiornaStato()
+        vista.foglio.limita()
+        scorriA(d.pagine.lastIndex)
+        programmaSalvataggio()
+    }
+
+    fun eliminaPagina() {
+        val d = documento ?: return
+        // Selezioni e caselle aperte si riferiscono alle pagine per posizione: si chiudono prima.
+        vista.chiudiTesto()
+        vista.chiudiSelezione()
+        vista.deselezionaOggetto()
+        d.eliminaPagina(vista.foglio.paginaCorrente())
+        vista.foglio.dimenticaCache()
+        vista.ridisegna()
+        aggiornaStato()
+        programmaSalvataggio()
+    }
+
+    fun cambiaSfondo(s: Sfondo) {
+        val d = documento ?: return
+        d.cambiaSfondo(vista.foglio.paginaCorrente(), s)
+        vista.ridisegna()
+        programmaSalvataggio()
+    }
+
+    /** Tourne la page visible de 90° (horaire si [orario], sinon antihoraire). */
+    fun ruotaPagina(orario: Boolean) {
+        val d = documento ?: return
+        vista.chiudiTesto()
+        vista.chiudiSelezione()
+        vista.deselezionaOggetto()
+        d.ruotaPagina(vista.foglio.paginaCorrente(), if (orario) 1 else -1)
+        vista.foglio.dimenticaCache()
+        vista.adattaLarghezza()
+        vista.ridisegna()
+        aggiornaStato()
+        programmaSalvataggio()
+    }
+
+    /** Scorre con un'animazione fino all'inizio della pagina [i]. */
+    fun scorriA(i: Int) {
+        val f = vista.foglio
+        val da = f.ty
+        val a = (-f.cimaPagina(i) * f.scala + f.spazioSopra).coerceIn(f.limiteTy)
+        android.animation.ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = 420
+            interpolator = android.view.animation.PathInterpolator(0.05f, 0.7f, 0.1f, 1f)
+            addUpdateListener { f.impostaVista(f.scala, f.tx, da + (a - da) * (it.animatedValue as Float)) }
+            start()
+        }
+    }
+
+    fun rinomina(nuovo: String) {
+        titolo = nuovo
+        val t = nuovo.trim()
+        // Il documento Google si aggiorna dopo che il nome e' sul disco, un secondo dopo l'ultima lettera.
+        // Una lettera alla volta, in ordine: l'ultimo nome scritto e' quello che resta.
+        stato.scope.launch(nomiInOrdine) {
+            stato.archivio.rinomina(id, t)
+            GoogleDocs.modificata(contesto, id, ritardo = 1000L)
+        }
+    }
+
+    /** Pannello della trascrizione: null se chiuso. */
+    var trascrizione by mutableStateOf<Trascrizione?>(null)
+        private set
+
+    sealed interface Trascrizione {
+        /** Il modello italiano non c'e' ancora: si chiede di scaricarlo. */
+        data object ServeModello : Trascrizione
+        data object InCorso : Trascrizione
+        data class Pronta(val testo: String) : Trascrizione
+        data class Errore(val messaggio: String) : Trascrizione
+    }
+
+    private var contesto: android.content.Context = context.applicationContext
+
+    fun trascrivi() {
+        val tratti = vista.copiaSelezione()
+        if (tratti.isEmpty()) return
+        trascrizione = Trascrizione.InCorso
+        stato.scope.launch {
+            trascrizione = try {
+                if (!Transcriber.modelloPronto(contesto)) Trascrizione.ServeModello
+                else Trascrizione.Pronta(Transcriber.trascrivi(contesto, tratti).trim())
+            } catch (e: Exception) {
+                Trascrizione.Errore(e.message ?: "Impossible de lire l'écriture")
+            }
+        }
+    }
+
+    fun scaricaModello() {
+        trascrizione = Trascrizione.InCorso
+        stato.scope.launch {
+            if (Transcriber.scaricaModello(contesto)) trascrivi()
+            else trascrizione = Trascrizione.Errore((Transcriber.stato.value as? Transcriber.StatoModello.Errore)?.messaggio ?: "Échec du téléchargement : vérifiez la connexion")
+        }
+    }
+
+    fun chiudiTrascrizione() { trascrizione = null }
+
+    /** Riscrive il testo con la "bella scrittura" al posto dei tratti selezionati, nello stesso punto. */
+    fun riscrivi(testo: String, stile: Stile) {
+        val originali = vista.copiaSelezione()
+        val sel = vista.selezione ?: return
+        if (originali.isEmpty() || testo.isBlank()) return
+        stato.scope.launch {
+            val nuovi = withContext(Dispatchers.Default) {
+                NeatHandwriting.prepara(contesto)
+                val prevalente = originali.groupingBy { it.colore }.eachCount().maxByOrNull { it.value }!!.key
+                val penna = originali.groupingBy { it.penna }.eachCount().maxByOrNull { it.value }!!.key
+                    .let { if (it == Penna.EVIDENZIATORE) Penna.PENNA else it }
+                val spessore = originali.filter { it.penna == penna }.map { it.spessore }.sorted().let { it.getOrElse(it.size / 2) { 3.2f } }
+                val box = sel.scatola
+                val larghezza = (SheetView.LARGHEZZA - 40f - box.left).coerceAtLeast(box.width())
+                NeatHandwriting.componi(
+                    testo, stile, box.left, box.top, NeatHandwriting.altezzaXStimata(originali), larghezza,
+                    prevalente, penna, spessore, idNuovo = { vista.nuovoId() },
+                )
+            }
+            vista.sostituisciSelezione(nuovi)
+            trascrizione = null
+        }
+    }
+
+    /**
+     * Note matematiche: se i tratti appena scritti completano un "=" dopo un'espressione, il
+     * risultato viene scritto a mano accanto. Le chiamate partono subito e in ordine, come chiede
+     * il Calcolatore (la finestra per le due barre dell'uguale si misura al momento della chiamata).
+     */
+    private var calcoli: kotlinx.coroutines.Job? = null
+
+    private fun calcola(p: it.frumorn.tratto.editor.PaginaViva, nuovi: List<it.frumorn.tratto.data.Tratto>) {
+        // Senza riconoscimento della scrittura (versione libera) non si legge l'espressione.
+        if (!Transcriber.DISPONIBILE || !stato.preferenze.calcoliAutomatici) return
+        val d = documento ?: return
+        val tutti = synchronized(p) { ArrayList(p.tratti) }
+        val stile = stato.preferenze.stileBellaScrittura
+        val precedente = calcoli
+        calcoli = stato.scope.launch {
+            precedente?.join()
+            val r = runCatching {
+                withContext(Dispatchers.Default) { it.frumorn.tratto.math.Calculator.dopoTratto(contesto, tutti, nuovi, stile) { d.nuovoIdTratto() } }
+            }.getOrNull()
+            if (r == null) {
+                // Nessun calcolo chiuso: se ci si ferma su una formula, si propone il risultato.
+                if (!chiusa) nuovi.lastOrNull()?.let { suggerimento.dopoTratto(p, it) }
+                return@launch
+            }
+            if (chiusa || d.pagine.none { it === p }) return@launch
+            suggerimento.conferma(p, r.riquadro)
+            r.tratti.forEach { t -> p.stroke(t) }
+            d.esegui(it.frumorn.tratto.editor.Modifica(p, emptyList(), r.tratti))
+            vista.ridisegna()
+            aggiornaStato()
+            programmaSalvataggio()
+        }
+    }
+
+    /** Scrive a mano "= risultato" del suggerimento toccato. */
+    fun scriviSuggerimento() {
+        val d = documento ?: return
+        val (p, tratti) = suggerimento.accetta { d.nuovoIdTratto() } ?: return
+        if (tratti.isEmpty() || d.pagine.none { it === p }) return
+        tratti.forEach { t -> p.stroke(t) }
+        d.esegui(it.frumorn.tratto.editor.Modifica(p, emptyList(), tratti))
+        vista.ridisegna()
+        aggiornaStato()
+        programmaSalvataggio()
+    }
+
+    fun copia() {
+        stato.appunti = vista.copiaSelezione()
+        val d = documento
+        stato.appuntiOggetti = vista.copiaOggettiSelezione().map { o ->
+            o to (o as? it.frumorn.tratto.data.Immagine)?.let { d?.fileImmagine(it.file) }
+        }
+    }
+
+    fun taglia() { copia(); vista.eliminaSelezione() }
+
+    /**
+     * Incolla tratti e oggetti copiati con il lazo. Le immagini che vengono da un'altra nota si
+     * ricopiano prima in questa (in sottofondo), cosi' ogni nota resta completa da sola.
+     */
+    fun incolla() {
+        val d = documento ?: return
+        val tratti = stato.appunti
+        val oggetti = stato.appuntiOggetti
+        if (oggetti.isEmpty()) { vista.incolla(tratti); return }
+        stato.scope.launch {
+            val pronti = withContext(Dispatchers.IO) {
+                oggetti.mapNotNull { (o, f) ->
+                    val id = it.frumorn.tratto.data.Archive.nuovoId()
+                    when (o) {
+                        is it.frumorn.tratto.data.Testo -> o.copy(id = id)
+                        is it.frumorn.tratto.data.Immagine -> {
+                            val sorgente = f?.takeIf { it.isFile } ?: return@mapNotNull null
+                            val file = if (sorgente == d.fileImmagine(o.file)) o.file
+                            else runCatching { d.salvaImmagine(sorgente.extension) { out -> sorgente.inputStream().use { it.copyTo(out) } } }.getOrNull()
+                            file?.let { o.copy(id = id, file = it) }
+                        }
+                    }
+                }
+            }
+            if (!chiusa) vista.incolla(tratti, pronti)
+        }
+    }
+
+    val haAppunti get() = stato.appunti.isNotEmpty() || stato.appuntiOggetti.isNotEmpty()
+
+    fun programmaSalvataggio() {
+        salvataggio?.cancel()
+        val ora = android.os.SystemClock.elapsedRealtime()
+        if (nonSalvataDa == 0L) nonSalvataDa = ora
+        val attesa = Delay.ritardo(nonSalvataDa, ora, PAUSA_SALVATAGGIO_MS, MASSIMO_SALVATAGGIO_MS)
+        salvataggio = stato.scope.launch {
+            delay(attesa)
+            nonSalvataDa = 0L
+            // Una volta partito il salvataggio arriva fino in fondo, anche se nel frattempo si scrive:
+            // cosi' il documento Google collegato riceve le novita' anche da chi non si ferma mai.
+            withContext(NonCancellable) {
+                withContext(Dispatchers.IO) { documento?.salva() }
+                GoogleDocs.modificata(contesto, id)
+            }
+        }
+    }
+
+    /** Salva, aggiorna la copertina e libera le risorse. */
+    fun chiudi() {
+        if (chiusa) return
+        // La casella di testo aperta si salva con il resto.
+        vista.chiudiTesto()
+        chiusa = true
+        documentoEsterno?.chiudi()
+        suggerimento.nascondi()
+        salvataggio?.cancel()
+        nonSalvataDa = 0L
+        val d = documento
+        val p = pdf
+        stato.scope.launch {
+            withContext(Dispatchers.IO) {
+                if (d != null) {
+                    val cambiata = d.modificato
+                    d.salva()
+                    GoogleDocs.finisciInBackground(contesto, id, cambiata)
+                    // Ora che la cronologia non serve piu', le immagini tolte possono sparire dal disco.
+                    runCatching { stato.archivio.immaginiOrfane(id) }
+                    val copertinaMancante = !stato.archivio.fileAnteprima(id).exists()
+                    if (cambiata || copertinaMancante) runCatching { Preview.crea(stato.archivio, d, p) }
+                }
+                p?.close()
+            }
+            stato.versioneAnteprime++
+        }
+    }
+
+    /** Salva tutto e attende la fine: da chiamare prima di esportare. */
+    suspend fun salvaEAttendi(): NotaInfo? {
+        vista.chiudiTesto()
+        salvataggio?.cancel()
+        nonSalvataDa = 0L
+        val d = documento ?: return null
+        withContext(Dispatchers.IO) { d.salva() }
+        return stato.archivio.note.value.find { it.id == id }
+    }
+
+    fun paginaCorrente() = documento?.pagine?.getOrNull(vista.foglio.paginaCorrente())?.pagina
+
+    /** Vero se la pagina corrente non ha niente da perdere: niente tratti, niente oggetti e niente PDF sotto. */
+    fun paginaVuota(): Boolean {
+        val p = documento?.pagine?.getOrNull(vista.foglio.paginaCorrente()) ?: return true
+        return p.caricata && p.tratti.isEmpty() && p.oggetti.isEmpty() && p.pagina.pdfPagina < 0
+    }
+
+    /** Salvataggio immediato quando l'app va in secondo piano (anche la casella di testo aperta). */
+    fun salvaOra() {
+        documentoEsterno?.pausa()
+        vista.chiudiTesto()
+        salvataggio?.cancel()
+        nonSalvataDa = 0L
+        val d = documento ?: return
+        stato.scope.launch(Dispatchers.IO) {
+            val cambiata = d.modificato
+            d.salva()
+            GoogleDocs.finisciInBackground(contesto, id, cambiata)
+        }
+    }
+
+    private companion object {
+        val nomiInOrdine = Dispatchers.IO.limitedParallelism(1)
+
+        /** Pausa dopo l'ultima modifica... */
+        const val PAUSA_SALVATAGGIO_MS = 1000L
+        /** ...ma mai piu' di cosi' dalla prima non salvata. */
+        const val MASSIMO_SALVATAGGIO_MS = 2000L
+    }
+}
