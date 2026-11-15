@@ -29,6 +29,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.HorizontalDivider
@@ -76,6 +77,7 @@ import it.frumorn.tratto.editor.Strumento
 import it.frumorn.tratto.ink.Brushes
 import it.frumorn.tratto.ui.BottoneIcona
 import it.frumorn.tratto.ui.Icona
+import it.frumorn.tratto.ui.SpettroColore
 import it.frumorn.tratto.ui.editor.GrigliaColori
 import it.frumorn.tratto.ui.premibile
 import it.frumorn.tratto.ui.theme.LocalTrattoColors
@@ -216,13 +218,15 @@ private fun AreaScrittura(s: QuickNoteSession, pannello: Boolean, onPannello: (B
                     s.vista.impostaMaschera(listOf(RectF(r.left, r.top, r.right, r.bottom)))
                 },
             ) {
-                Column(Modifier.padding(16.dp)) {
-                    GrigliaColori(StatoStrumenti.TAVOLOZZA, st.corrente.colore) { s.scegliColore(it); onPannello(false) }
+                Column(Modifier.padding(16.dp).widthIn(max = 300.dp)) {
+                    GrigliaColori(StatoStrumenti.TAVOLOZZA, st.corrente.colore) { s.scegliColore(it) }
+                    Spacer(Modifier.height(12.dp))
+                    SpettroColore(st.corrente.colore, { s.scegliColore(it) }, altezza = 120.dp)
                     if (st.coloriRecenti.isNotEmpty()) {
                         Spacer(Modifier.height(12.dp))
                         Text(testo(R.string.recent), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Spacer(Modifier.height(8.dp))
-                        GrigliaColori(st.coloriRecenti, st.corrente.colore) { s.scegliColore(it); onPannello(false) }
+                        GrigliaColori(st.coloriRecenti, st.corrente.colore) { s.scegliColore(it) }
                     }
                 }
             }

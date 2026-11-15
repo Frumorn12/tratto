@@ -58,6 +58,7 @@ import it.frumorn.tratto.data.Testo
 import it.frumorn.tratto.editor.StatoStrumenti
 import it.frumorn.tratto.ui.BottoneIcona
 import it.frumorn.tratto.ui.Icona
+import it.frumorn.tratto.ui.SpettroColore
 import it.frumorn.tratto.ui.testo
 import it.frumorn.tratto.ui.theme.Manrope
 import kotlin.math.roundToInt
@@ -286,6 +287,8 @@ private fun MenuColore(icona: Int, descrizione: String, attuale: Int?, colori: L
                 Text(descrizione.uppercase(), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
                 Spacer(Modifier.height(10.dp))
                 GrigliaColori(colori, attuale ?: 0) { aperto = false; onScelta(it) }
+                Spacer(Modifier.height(10.dp))
+                SpettroColore(attuale ?: COLORE_TESTO, { onScelta(it) }, altezza = 110.dp, modifier = Modifier.widthIn(min = 220.dp))
                 Spacer(Modifier.height(4.dp))
                 TextButton(onClick = { aperto = false; onScelta(null) }) { Text(nessuno) }
             }

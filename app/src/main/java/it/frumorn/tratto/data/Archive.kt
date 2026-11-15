@@ -280,6 +280,54 @@ class Archive(
         ids.forEach { cartellaNota(it).deleteRecursively() }
     }
 
+    /**
+     * Unisce almeno due note in una sola: resta la piu' vecchia (per data di creazione), le pagine
+     * delle altre si appendono in ordine di creazione (tratti, oggetti e immagini). Le note fuse
+     * spariscono. Lo sfondo PDF delle pagine aggiunte non si porta dietro (resta solo quello della
+     * nota di destinazione, se ce l'ha).
+     */
+    fun unisciNote(ids: Collection<String>): NotaInfo {
+        val scelte = ids.mapNotNull { id -> _note.value.find { it.id == id } }
+            .distinctBy { it.id }
+            .sortedWith(compareBy({ it.creata }, { it.id }))
+        require(scelte.size >= 2) { "Serve almeno due note da unire" }
+        val destinazione = scelte.first()
+        val destId = destinazione.id
+        val elenco = ArrayList(pagine(destId))
+        for (src in scelte.drop(1)) {
+            for (p in pagine(src.id)) {
+                val nuovaId = nuovoId()
+                val trattiSrc = tratti(src.id, p.id)
+                val oggettiNuovi = oggetti(src.id, p.id).map { copiaOggettoVerso(destId, src.id, it) }
+                elenco += p.copy(id = nuovaId, pdfPagina = -1)
+                if (trattiSrc.isNotEmpty()) PageFormat.scrivi(filePagina(destId, nuovaId), trattiSrc)
+                if (oggettiNuovi.isNotEmpty()) {
+                    scriviAtomico(fileOggetti(destId, nuovaId), ObjectFormat.scrivi(oggettiNuovi).toByteArray())
+                }
+            }
+        }
+        salvaPagine(destId, elenco)
+        fileAnteprima(destId).delete()
+        elimina(scelte.drop(1).map { it.id }.toSet())
+        tocca(destId)
+        return _note.value.first { it.id == destId }
+    }
+
+    /** Copia un oggetto (e il file immagine, se serve) dalla nota [da] verso [verso]. */
+    private fun copiaOggettoVerso(verso: String, da: String, o: Oggetto): Oggetto = when (o) {
+        is Immagine -> {
+            val src = fileImmagine(da, o.file)
+            val file = if (src.isFile) {
+                val estensione = src.extension.ifBlank { "webp" }
+                salvaImmagine(verso, estensione) { out -> src.inputStream().use { it.copyTo(out) } }
+            } else {
+                o.file
+            }
+            o.copy(id = nuovoId(), file = file)
+        }
+        is Testo -> o.copy(id = nuovoId())
+    }
+
     fun nuovaCartella(nome: String, colore: Int): Cartella {
         val c = Cartella(nuovoId(), nome, colore)
         _cartelle.update { it + c }

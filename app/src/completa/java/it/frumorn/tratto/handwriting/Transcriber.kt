@@ -13,8 +13,10 @@ import com.google.mlkit.vision.digitalink.recognition.DigitalInkRecognizerOption
 import com.google.mlkit.vision.digitalink.recognition.Ink
 import com.google.mlkit.vision.digitalink.recognition.RecognitionContext
 import com.google.mlkit.vision.digitalink.recognition.WritingArea
+import it.frumorn.tratto.R
 import it.frumorn.tratto.data.Penna
 import it.frumorn.tratto.data.Tratto
+import it.frumorn.tratto.ui.testoOra
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
@@ -142,7 +144,10 @@ object Transcriber {
             _stato.value = StatoModello.Assente
             false
         } catch (e: Exception) {
-            _stato.value = StatoModello.Errore(e.message?.let { "Échec du téléchargement du modèle : $it" } ?: "Échec du téléchargement du modèle")
+            _stato.value = StatoModello.Errore(
+                e.message?.let { testoOra(R.string.model_download_failed_detail, it) }
+                    ?: testoOra(R.string.model_download_failed),
+            )
             false
         }
     }

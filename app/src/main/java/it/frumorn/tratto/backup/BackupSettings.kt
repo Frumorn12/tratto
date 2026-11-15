@@ -3,6 +3,8 @@ package it.frumorn.tratto.backup
 import android.content.Context
 import android.content.SharedPreferences
 import androidx.core.content.edit
+import it.frumorn.tratto.R
+import it.frumorn.tratto.ui.testoOra
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
@@ -27,10 +29,12 @@ data class StatoBackup(
     val soloInCarica: Boolean = false,
     /** L'accesso a Drive e' stato revocato o e' scaduto: serve di nuovo autorizza() dalla UI. */
     val serveAccesso: Boolean = false,
-    /** Versione libera: URI (albero SAF) della cartella dei backup automatici, null se non scelta. */
+    /** URI (albero SAF) della cartella di auto-export / historique, null se non scelta. */
     val cartella: String? = null,
     /** Nome della [cartella] da mostrare. */
     val nomeCartella: String? = null,
+    /** Auto-export actif : archive à chaque changement pertinent dans [cartella]. */
+    val autoExport: Boolean = false,
 )
 
 /**
@@ -69,20 +73,44 @@ object BackupSettings {
     internal fun errore(context: Context, messaggio: String) = modifica(context) { it.copy(errore = messaggio) }
 
     internal fun serveAccesso(context: Context) =
-        modifica(context) { it.copy(serveAccesso = true, errore = "Serve di nuovo l'accesso a Google Drive.") }
+        modifica(context) { it.copy(serveAccesso = true, errore = testoOra(R.string.google_drive_access_needed_again)) }
 
     internal fun collegato(context: Context, account: String?) = modifica(context) {
         it.copy(account = account ?: it.account, serveAccesso = false, errore = null)
     }
 
-    /** Versione libera: la cartella dei backup automatici e' cambiata (l'ultimo backup era altrove). */
-    internal fun cartellaScelta(context: Context, uri: String, nome: String?) = modifica(context) { s ->
-        s.copy(cartella = uri, nomeCartella = nome, errore = null, ultimoBackup = if (s.cartella == uri) s.ultimoBackup else null)
+    fun impostaAutoExport(context: Context, attivo: Boolean) {
+        modifica(context) { it.copy(autoExport = attivo) }
+        if (!attivo) AutoExportWorker.annulla(context)
     }
 
-    /** Scollega Drive o la cartella: una sola delle due e' usata, a seconda della versione. */
+    /** La cartella d'auto-export a changé (ou vient d'être choisie). */
+    internal fun cartellaScelta(context: Context, uri: String, nome: String?, autoExport: Boolean = true) = modifica(context) { s ->
+        s.copy(
+            cartella = uri,
+            nomeCartella = nome,
+            autoExport = autoExport,
+            errore = null,
+            ultimoBackup = if (s.cartella == uri) s.ultimoBackup else null,
+        )
+    }
+
+    /** Déconnecte Google Drive sans toucher à l'auto-export dossier. */
+    internal fun scollegaDrive(context: Context) = modifica(context) {
+        it.copy(account = null, automatico = false, serveAccesso = false, errore = null)
+    }
+
+    /** Oublie le dossier d'auto-export (Drive inchangé). */
+    internal fun scollegaCartella(context: Context) = modifica(context) {
+        it.copy(cartella = null, nomeCartella = null, autoExport = false, errore = null)
+    }
+
+    /** @deprecated Préférer [scollegaDrive] / [scollegaCartella]. */
     internal fun scollegato(context: Context) = modifica(context) {
-        it.copy(account = null, cartella = null, nomeCartella = null, automatico = false, serveAccesso = false, errore = null, ultimoBackup = null)
+        it.copy(
+            account = null, cartella = null, nomeCartella = null, automatico = false,
+            autoExport = false, serveAccesso = false, errore = null, ultimoBackup = null,
+        )
     }
 
     @Synchronized
@@ -112,6 +140,8 @@ object BackupSettings {
         serveAccesso = p.getBoolean("serveAccesso", false),
         cartella = p.getString("cartella", null),
         nomeCartella = p.getString("nomeCartella", null),
+        // Ancienne libera : dossier choisi = auto-export activé par défaut.
+        autoExport = p.getBoolean("autoExport", p.getString("cartella", null) != null),
     )
 
     private fun salva(p: SharedPreferences, s: StatoBackup) = p.edit {
@@ -124,5 +154,6 @@ object BackupSettings {
         putBoolean("serveAccesso", s.serveAccesso)
         putString("cartella", s.cartella)
         putString("nomeCartella", s.nomeCartella)
+        putBoolean("autoExport", s.autoExport)
     }
 }

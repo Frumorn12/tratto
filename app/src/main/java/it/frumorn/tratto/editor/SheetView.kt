@@ -349,7 +349,9 @@ class SheetView(context: Context) : View(context) {
         c.drawLine(cx, cy - 0.45f * raggio, cx, cy + 0.45f * raggio, pSegno)
         c.restore()
         pTesto.color = coloreAccento; pTesto.alpha = pFantasma.alpha
-        val testo = if (pronta) "Rilascia per aggiungere una pagina" else "Continua a tirare per una pagina nuova"
+        val testo = context.getString(
+            if (pronta) R.string.release_to_add_a_page else R.string.keep_pulling_for_a_new_page,
+        )
         c.drawText(testo, cx, cy + raggio + 26 * densita, pTesto)
     }
 

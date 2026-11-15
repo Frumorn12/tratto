@@ -44,6 +44,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
@@ -101,6 +102,7 @@ import it.frumorn.tratto.ink.Brushes
 import it.frumorn.tratto.handwriting.Transcriber
 import it.frumorn.tratto.ui.BottoneIcona
 import it.frumorn.tratto.ui.Icona
+import it.frumorn.tratto.ui.SpettroColore
 import it.frumorn.tratto.ui.nomePenna
 import it.frumorn.tratto.ui.testo
 import it.frumorn.tratto.ui.testoOra
@@ -498,7 +500,7 @@ private fun PannelloStrumento(s: EditorSession, onChiudi: () -> Unit, modifier: 
         border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         modifier = modifier.widthIn(max = (windowInfo().largeurDp - 32).coerceAtLeast(280).dp).width(420.dp),
     ) {
-        Column(Modifier.padding(20.dp)) {
+        Column(Modifier.padding(20.dp).verticalScroll(rememberScrollState())) {
             when (st.strumento) {
                 Strumento.PENNA -> OpzioniPenna(s, st)
                 Strumento.GOMMA -> OpzioniGomma(s, st)
@@ -547,6 +549,8 @@ private fun OpzioniPenna(s: EditorSession, st: StatoStrumenti) {
     Text(testo(R.string.color), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
     Spacer(Modifier.height(10.dp))
     GrigliaColori(StatoStrumenti.TAVOLOZZA, imp.colore) { aggiorna(colore = it) }
+    Spacer(Modifier.height(12.dp))
+    SpettroColore(imp.colore, { aggiorna(colore = it) }, altezza = 128.dp)
     if (st.coloriRecenti.isNotEmpty()) {
         Spacer(Modifier.height(12.dp))
         Text(testo(R.string.recent), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -626,7 +630,11 @@ private fun BarraSelezione(s: EditorSession, modifier: Modifier) {
     Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.inverseSurface, contentColor = MaterialTheme.colorScheme.inverseOnSurface, shadowElevation = 6.dp, modifier = modifier) {
         Column(Modifier.padding(horizontal = 10.dp, vertical = 6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             androidx.compose.animation.AnimatedVisibility(colori) {
-                Box(Modifier.padding(8.dp)) { GrigliaColori(StatoStrumenti.TAVOLOZZA, 0) { s.vista.coloraSelezione(it); colori = false } }
+                Column(Modifier.padding(8.dp).widthIn(max = 280.dp)) {
+                    GrigliaColori(StatoStrumenti.TAVOLOZZA, 0) { s.vista.coloraSelezione(it); colori = false }
+                    Spacer(Modifier.height(10.dp))
+                    SpettroColore(s.strumenti.corrente.colore, { s.vista.coloraSelezione(it) }, altezza = 110.dp)
+                }
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 // Nella versione libera non c'e' il riconoscimento della scrittura.

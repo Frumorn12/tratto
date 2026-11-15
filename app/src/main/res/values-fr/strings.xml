@@ -25,6 +25,11 @@
     <string name="automatic">Automatique</string>
     <string name="automatic_backup_every_day">Sauvegarde automatique chaque jour</string>
     <string name="automatic_backup_to_a_folder">Sauvegarde automatique dans un dossier</string>
+    <string name="auto_export">Auto-export</string>
+    <string name="auto_export_help">Activé, Tratto écrit une archive .tratto datée dans le dossier choisi après chaque changement (notes, cahiers, chapitres…). Les %1$d dernières archives sont gardées pour pouvoir restaurer une version antérieure.</string>
+    <string name="auto_export_history">Historique</string>
+    <string name="auto_export_no_archives">Pas encore d\'archives dans ce dossier.</string>
+    <string name="auto_export_restore">Restaurer cette version</string>
     <string name="automatic_calculations">Calculs automatiques</string>
     <string name="back">Retour</string>
     <string name="back_to_home">Retour à l\'accueil</string>
@@ -152,6 +157,8 @@
     <string name="match_system">Comme le système</string>
     <string name="medium">Moyenne</string>
     <string name="merge">Fusionner</string>
+    <string name="merge_notes">Fusionner les notes</string>
+    <string name="merge_notes_confirm">Fusionner %1$d notes en une seule ? Leurs pages seront réunies dans la note la plus ancienne, dans l\'ordre de création. Les autres notes seront supprimées.</string>
     <string name="more">Plus</string>
     <string name="move">Déplacer</string>
     <string name="move_to">Déplacer vers</string>
@@ -304,4 +311,16 @@ Le double-clic du bouton du stylet ne fonctionne que dans Tratto : dans les autr
     <string name="folder_backup_no_folder">Aucun dossier choisi. Tratto y enregistre un fichier .tratto, même chaque jour, et garde les %1$s derniers. Le dossier d\'une application qui synchronise, comme Nextcloud ou Syncthing, convient aussi. Pour restaurer, utilisez « Restaurer depuis un fichier ».</string>
     <string name="google_oauth_not_configured">Accès à Google non configuré pour cette application : dans Google Cloud Console, il faut un client OAuth Android avec le bon package et le bon SHA-1.</string>
     <string name="unnamed">sans nom</string>
+    <string name="keep_pulling_for_a_new_page">Continuez à tirer pour une nouvelle page</string>
+    <string name="release_to_add_a_page">Relâchez pour ajouter une page</string>
+    <string name="pdf_saved">PDF enregistré</string>
+    <string name="share_title">Partager « %1$s »</string>
+    <string name="cannot_open_pdf">Impossible d\'ouvrir le PDF : %1$s</string>
+    <string name="pdf_has_no_pages">Le PDF n\'a pas de pages</string>
+    <string name="could_not_read_handwriting">Impossible de lire l\'écriture</string>
+    <string name="download_failed_check_connection">Échec du téléchargement : vérifiez la connexion</string>
+    <string name="model_download_failed">Échec du téléchargement du modèle</string>
+    <string name="model_download_failed_detail">Échec du téléchargement du modèle : %1$s</string>
+    <string name="custom_color">Couleur personnalisée</string>
+    <string name="google_drive_access_needed_again">Il faut à nouveau l\'accès à Google Drive.</string>
 </resources>

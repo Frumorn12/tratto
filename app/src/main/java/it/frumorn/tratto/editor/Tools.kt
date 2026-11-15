@@ -1,6 +1,8 @@
 package it.frumorn.tratto.editor
 
+import it.frumorn.tratto.R
 import it.frumorn.tratto.data.Penna
+import it.frumorn.tratto.ui.testoOra
 import java.util.Locale
 
 /** TESTO: toccando la pagina si crea (o si modifica) una casella di testo. */
@@ -44,13 +46,13 @@ data class StatoStrumenti(
 
         /** Nomi dei colori della tavolozza, per TalkBack. Inglese se la lingua non è fr, it o en. */
         fun nomeColore(c: Int): String {
-            val (nomi, altro) = when (Locale.getDefault().language) {
-                "fr" -> NOMI_FR to "Couleur personnalisée"
-                "it" -> NOMI_IT to "Colore personalizzato"
-                else -> NOMI_EN to "Custom color"
+            val nomi = when (Locale.getDefault().language) {
+                "fr" -> NOMI_FR
+                "it" -> NOMI_IT
+                else -> NOMI_EN
             }
             val i = TAVOLOZZA.indexOf(c)
-            return if (i >= 0) nomi[i] else altro
+            return if (i >= 0) nomi[i] else testoOra(R.string.custom_color)
         }
 
         val SPESSORI_EVIDENZIATORE = 12f..48f

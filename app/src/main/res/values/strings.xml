@@ -25,6 +25,11 @@
     <string name="automatic">Automatic</string>
     <string name="automatic_backup_every_day">Automatic backup every day</string>
     <string name="automatic_backup_to_a_folder">Automatic backup to a folder</string>
+    <string name="auto_export">Auto-export</string>
+    <string name="auto_export_help">When on, Tratto writes a dated .tratto archive to the chosen folder after each change (notes, notebooks, chapters…). The last %1$d archives are kept so you can restore an earlier version.</string>
+    <string name="auto_export_history">History</string>
+    <string name="auto_export_no_archives">No archives in this folder yet.</string>
+    <string name="auto_export_restore">Restore this version</string>
     <string name="automatic_calculations">Automatic calculations</string>
     <string name="back">Back</string>
     <string name="back_to_home">Back to home</string>
@@ -152,6 +157,8 @@
     <string name="match_system">Match system</string>
     <string name="medium">Medium</string>
     <string name="merge">Merge</string>
+    <string name="merge_notes">Merge notes</string>
+    <string name="merge_notes_confirm">Merge %1$d notes into one? Their pages will be joined in the oldest note, in creation order. The other notes will be deleted.</string>
     <string name="more">More</string>
     <string name="move">Move</string>
     <string name="move_to">Move to</string>
@@ -304,4 +311,16 @@ A double-click of the stylus button only works in Tratto: in other apps Android 
     <string name="folder_backup_no_folder">No folder chosen. Tratto saves a .tratto file there, even every day, and keeps the last %1$s. A folder from an app that syncs, such as Nextcloud or Syncthing, works too. To restore, use “Restore from a file”.</string>
     <string name="google_oauth_not_configured">Google access is not set up for this app: Google Cloud Console needs an Android OAuth client with the right package and SHA-1.</string>
     <string name="unnamed">unnamed</string>
+    <string name="keep_pulling_for_a_new_page">Keep pulling for a new page</string>
+    <string name="release_to_add_a_page">Release to add a page</string>
+    <string name="pdf_saved">PDF saved</string>
+    <string name="share_title">Share “%1$s”</string>
+    <string name="cannot_open_pdf">Could not open the PDF: %1$s</string>
+    <string name="pdf_has_no_pages">The PDF has no pages</string>
+    <string name="could_not_read_handwriting">Could not read the handwriting</string>
+    <string name="download_failed_check_connection">Download failed: check the connection</string>
+    <string name="model_download_failed">Model download failed</string>
+    <string name="model_download_failed_detail">Model download failed: %1$s</string>
+    <string name="custom_color">Custom color</string>
+    <string name="google_drive_access_needed_again">Google Drive access is needed again.</string>
 </resources>

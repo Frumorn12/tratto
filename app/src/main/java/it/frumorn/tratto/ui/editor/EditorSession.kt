@@ -5,6 +5,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import it.frumorn.tratto.R
+import it.frumorn.tratto.backup.AutoExport
 import it.frumorn.tratto.data.NotaInfo
 import it.frumorn.tratto.data.Sfondo
 import it.frumorn.tratto.editor.Preview
@@ -20,6 +22,7 @@ import it.frumorn.tratto.handwriting.Stile
 import it.frumorn.tratto.handwriting.Transcriber
 import it.frumorn.tratto.pdf.PdfBackground
 import it.frumorn.tratto.ui.AppState
+import it.frumorn.tratto.ui.testoOra
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
@@ -332,7 +335,7 @@ class EditorSession(private val stato: AppState, val id: String, context: Contex
                 if (!Transcriber.modelloPronto(contesto)) Trascrizione.ServeModello
                 else Trascrizione.Pronta(Transcriber.trascrivi(contesto, tratti).trim())
             } catch (e: Exception) {
-                Trascrizione.Errore(e.message ?: "Impossible de lire l'écriture")
+                Trascrizione.Errore(e.message ?: testoOra(R.string.could_not_read_handwriting))
             }
         }
     }
@@ -341,7 +344,10 @@ class EditorSession(private val stato: AppState, val id: String, context: Contex
         trascrizione = Trascrizione.InCorso
         stato.scope.launch {
             if (Transcriber.scaricaModello(contesto)) trascrivi()
-            else trascrizione = Trascrizione.Errore((Transcriber.stato.value as? Transcriber.StatoModello.Errore)?.messaggio ?: "Échec du téléchargement : vérifiez la connexion")
+            else trascrizione = Trascrizione.Errore(
+                (Transcriber.stato.value as? Transcriber.StatoModello.Errore)?.messaggio
+                    ?: testoOra(R.string.download_failed_check_connection),
+            )
         }
     }
 
@@ -470,6 +476,7 @@ class EditorSession(private val stato: AppState, val id: String, context: Contex
             withContext(NonCancellable) {
                 withContext(Dispatchers.IO) { documento?.salva() }
                 GoogleDocs.modificata(contesto, id)
+                AutoExport.segnalaCambio(contesto)
             }
         }
     }
@@ -487,9 +494,10 @@ class EditorSession(private val stato: AppState, val id: String, context: Contex
         val d = documento
         val p = pdf
         stato.scope.launch {
+            var cambiata = false
             withContext(Dispatchers.IO) {
                 if (d != null) {
-                    val cambiata = d.modificato
+                    cambiata = d.modificato
                     d.salva()
                     GoogleDocs.finisciInBackground(contesto, id, cambiata)
                     // Ora che la cronologia non serve piu', le immagini tolte possono sparire dal disco.
@@ -499,6 +507,7 @@ class EditorSession(private val stato: AppState, val id: String, context: Contex
                 }
                 p?.close()
             }
+            if (cambiata) AutoExport.segnalaCambio(contesto)
             stato.versioneAnteprime++
         }
     }
@@ -532,6 +541,7 @@ class EditorSession(private val stato: AppState, val id: String, context: Contex
             val cambiata = d.modificato
             d.salva()
             GoogleDocs.finisciInBackground(contesto, id, cambiata)
+            if (cambiata) AutoExport.segnalaCambio(contesto)
         }
     }
 

@@ -117,6 +117,7 @@ import it.frumorn.tratto.data.Cartella
 import it.frumorn.tratto.data.NotaInfo
 import it.frumorn.tratto.ui.BottoneIcona
 import it.frumorn.tratto.ui.Filtro
+import it.frumorn.tratto.ui.SpettroColore
 import it.frumorn.tratto.ui.cartellaAperta
 import it.frumorn.tratto.ui.capitoloAperto
 import it.frumorn.tratto.ui.testo
@@ -151,6 +152,7 @@ fun SharedTransitionScope.Library(stato: AppState, animazione: AnimatedVisibilit
     val cartelle by stato.archivio.cartelle.collectAsState()
     var selezionate by remember { mutableStateOf(emptySet<String>()) }
     var mostraNuovaCartella by remember { mutableStateOf(false) }
+    var confermaUnisci by remember { mutableStateOf(false) }
     var mostraSposta by remember { mutableStateOf(false) }
     var confermaElimina by remember { mutableStateOf(false) }
     var rinominaCartella by remember { mutableStateOf<Cartella?>(null) }
@@ -319,6 +321,7 @@ fun SharedTransitionScope.Library(stato: AppState, animazione: AnimatedVisibilit
                     Intestazione(stato, cartelle, filtre, selezionate, onChiudiSelezione = { selezionate = emptySet() },
                         onPreferita = { val tutte = note.filter { it.id in selezionate }.all { it.preferita }; selezionate.forEach { stato.preferita(it, !tutte) }; selezionate = emptySet() },
                         onSposta = { mostraSposta = true },
+                        onUnisci = { if (selezionate.size >= 2) confermaUnisci = true },
                         onElimina = { confermaElimina = true },
                         onImporta = { apriSelettore() },
                         onSortie = ::sortir)
@@ -513,6 +516,22 @@ fun SharedTransitionScope.Library(stato: AppState, animazione: AnimatedVisibilit
             dismissButton = { TextButton({ confermaElimina = false }) { Text(testo(R.string.cancel)) } },
         )
     }
+    if (confermaUnisci) {
+        AlertDialog(
+            onDismissRequest = { confermaUnisci = false },
+            title = { Text(testo(R.string.merge_notes)) },
+            text = { Text(testo(R.string.merge_notes_confirm, selezionate.size)) },
+            confirmButton = {
+                TextButton({
+                    val ids = selezionate
+                    selezionate = emptySet()
+                    confermaUnisci = false
+                    stato.unisciNote(ids)
+                }) { Text(testo(R.string.merge)) }
+            },
+            dismissButton = { TextButton({ confermaUnisci = false }) { Text(testo(R.string.cancel)) } },
+        )
+    }
 }
 
 @Composable
@@ -536,6 +555,7 @@ private fun Intestazione(
     onChiudiSelezione: () -> Unit,
     onPreferita: () -> Unit,
     onSposta: () -> Unit,
+    onUnisci: () -> Unit,
     onElimina: () -> Unit,
     onImporta: () -> Unit,
     onSortie: () -> Unit,
@@ -569,6 +589,9 @@ private fun Intestazione(
                     Text(testo(R.string.selected, selezionate.size), style = MaterialTheme.typography.headlineSmall, modifier = Modifier.weight(1f))
                     BottoneIcona(R.drawable.ic_star, testo(R.string.favorite), onClick = onPreferita)
                     BottoneIcona(R.drawable.ic_drive_file_move, testo(R.string.move), onClick = onSposta)
+                    if (selezionate.size >= 2) {
+                        BottoneIcona(R.drawable.ic_view_agenda, testo(R.string.merge_notes), onClick = onUnisci)
+                    }
                     BottoneIcona(R.drawable.ic_delete, testo(R.string.delete), onClick = onElimina)
                 }
             } else {
@@ -776,7 +799,7 @@ private fun DialogoCapitolo(
         onDismissRequest = onChiudi,
         title = { Text(if (capitolo == null) testo(R.string.new_chapter) else testo(R.string.edit_chapter)) },
         text = {
-            Column {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
                 OutlinedTextField(nome, { nome = it }, label = { Text(testo(R.string.name)) }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 Spacer(Modifier.height(16.dp))
                 SceltaColore(colore) { colore = it }
@@ -853,20 +876,23 @@ fun quando(ms: Long): String {
 
 @Composable
 private fun SceltaColore(colore: Int, onColore: (Int) -> Unit) {
-    Row(
-        Modifier.horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        ColoriCartelle.forEach { c ->
-            Box(
-                Modifier
-                    .size(30.dp)
-                    .clip(CircleShape)
-                    .background(Color(c))
-                    .border(if (c == colore) 3.dp else 0.dp, MaterialTheme.colorScheme.onSurface, CircleShape)
-                    .combinedClickable { onColore(c) },
-            )
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(
+            Modifier.horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            ColoriCartelle.forEach { c ->
+                Box(
+                    Modifier
+                        .size(30.dp)
+                        .clip(CircleShape)
+                        .background(Color(c))
+                        .border(if (c == colore) 3.dp else 0.dp, MaterialTheme.colorScheme.onSurface, CircleShape)
+                        .combinedClickable { onColore(c) },
+                )
+            }
         }
+        SpettroColore(colore, onColore, altezza = 120.dp)
     }
 }
 
@@ -878,7 +904,7 @@ private fun DialogoCartella(cartella: Cartella?, onChiudi: () -> Unit, onElimina
         onDismissRequest = onChiudi,
         title = { Text(if (cartella == null) testo(R.string.new_notebook) else testo(R.string.edit_notebook)) },
         text = {
-            Column {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
                 OutlinedTextField(nome, { nome = it }, label = { Text(testo(R.string.name)) }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 Spacer(Modifier.height(16.dp))
                 SceltaColore(colore) { colore = it }

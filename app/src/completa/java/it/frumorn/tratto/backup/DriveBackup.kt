@@ -85,7 +85,7 @@ class DriveBackup(
     }
 
     /** Il consenso e' stato revocato o scaduto: serve [autorizza] dalla UI. */
-    class AccessoNecessario : Exception("Serve di nuovo l'accesso a Google Drive.")
+    class AccessoNecessario : Exception(testoOra(R.string.google_drive_access_needed_again))
 
     data class RiepilogoBackup(val caricate: Int, val rinominate: Int, val cestinate: Int)
 
@@ -125,7 +125,7 @@ class DriveBackup(
         }
         mutex.withLock { withContext(Dispatchers.IO) { fileStato.delete() } }
         withContext(Dispatchers.IO) {
-            BackupSettings.scollegato(app)
+            BackupSettings.scollegaDrive(app)
             BackupWorker.pianifica(app)
         }
     }

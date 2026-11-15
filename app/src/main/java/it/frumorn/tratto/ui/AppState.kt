@@ -8,6 +8,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import it.frumorn.tratto.R
+import it.frumorn.tratto.backup.AutoExport
 import it.frumorn.tratto.data.Archive
 import it.frumorn.tratto.data.NotaInfo
 import it.frumorn.tratto.data.NoteshelfImport
@@ -139,7 +141,7 @@ class AppState(private val context: Context, val archivio: Archive, val preferen
             val capitolo = filtro.capitoloAperto()
             val info = withContext(Dispatchers.IO) {
                 archivio.caricaIndice()
-                archivio.nuovaNota(sfondo, cartella, capitolo)
+                archivio.nuovaNota(sfondo, cartella, capitolo).also { AutoExport.segnalaCambio(context, subito = true) }
             }
             indiceCaricato = true
             schermata = Schermata.Editor(info.id, origine)
@@ -168,7 +170,10 @@ class AppState(private val context: Context, val archivio: Archive, val preferen
                 }
             }
             risultato.onFailure { Log.e("Tratto", "Import Noteshelf", it) }
-            if (risultato.isSuccess) versioneAnteprime++
+            if (risultato.isSuccess) {
+                versioneAnteprime++
+                AutoExport.segnalaCambio(context, subito = true)
+            }
             onFatto(risultato)
         }
     }
@@ -182,7 +187,7 @@ class AppState(private val context: Context, val archivio: Archive, val preferen
                     val tmp = File(context.cacheDir, "import.pdf")
                     context.contentResolver.openInputStream(uri)!!.use { i -> tmp.outputStream().use { i.copyTo(it) } }
                     val pagine = PdfBackground.dimensioni(tmp)
-                    require(pagine.isNotEmpty()) { "Le PDF n'a pas de pages" }
+                    require(pagine.isNotEmpty()) { testoOra(R.string.pdf_has_no_pages) }
                     val titolo = nomeFile(uri)?.removeSuffix(".pdf")?.removeSuffix(".PDF") ?: "PDF"
                     val cartella = filtro.cartellaAperta()
                     val info = archivio.notaDaPdf(titolo, cartella, { dest -> tmp.copyTo(dest, overwrite = true) }, pagine).also { tmp.delete() }
@@ -190,8 +195,10 @@ class AppState(private val context: Context, val archivio: Archive, val preferen
                     info
                 }
             }
-            risultato.onSuccess { schermata = Schermata.Editor(it.id, "nuova") }
-                .onFailure { Toast.makeText(context, "Impossible d'ouvrir le PDF : ${it.message}", Toast.LENGTH_LONG).show() }
+            risultato.onSuccess {
+                AutoExport.segnalaCambio(context, subito = true)
+                schermata = Schermata.Editor(it.id, "nuova")
+            }.onFailure { Toast.makeText(context, testoOra(R.string.cannot_open_pdf, it.message), Toast.LENGTH_LONG).show() }
         }
     }
 
@@ -202,10 +209,27 @@ class AppState(private val context: Context, val archivio: Archive, val preferen
     }.getOrNull()
 
     fun inBackground(azione: () -> Unit) {
-        scope.launch(Dispatchers.IO) { azione() }
+        scope.launch(Dispatchers.IO) {
+            azione()
+            AutoExport.segnalaCambio(context, subito = true)
+        }
     }
 
     fun elimina(ids: Set<String>) = inBackground { archivio.elimina(ids) }
+
+    /** Unisce le note selezionate in una sola (pagine concatenate) e la apre. */
+    fun unisciNote(ids: Set<String>) {
+        if (ids.size < 2) return
+        scope.launch {
+            val info = withContext(Dispatchers.IO) {
+                archivio.caricaIndice()
+                archivio.unisciNote(ids).also { AutoExport.segnalaCambio(context, subito = true) }
+            }
+            versioneAnteprime++
+            schermata = Schermata.Editor(info.id, "nota-${info.id}")
+        }
+    }
+
     fun preferita(id: String, si: Boolean) = inBackground { archivio.preferita(id, si) }
     fun sposta(ids: Set<String>, cartella: String?) = inBackground { ids.forEach { archivio.sposta(it, cartella) } }
     fun rinomina(id: String, titolo: String) = inBackground { archivio.rinomina(id, titolo) }

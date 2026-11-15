@@ -25,6 +25,11 @@
     <string name="automatic">Automatico</string>
     <string name="automatic_backup_every_day">Backup automatico ogni giorno</string>
     <string name="automatic_backup_to_a_folder">Backup automatico in una cartella</string>
+    <string name="auto_export">Auto-export</string>
+    <string name="auto_export_help">Se attivo, Tratto scrive un archivio .tratto datato nella cartella scelta dopo ogni modifica (note, quaderni, capitoli…). Restano gli ultimi %1$d archivi, così puoi ripristinare una versione precedente.</string>
+    <string name="auto_export_history">Cronologia</string>
+    <string name="auto_export_no_archives">Nessun archivio in questa cartella per ora.</string>
+    <string name="auto_export_restore">Ripristina questa versione</string>
     <string name="automatic_calculations">Calcoli automatici</string>
     <string name="back">Indietro</string>
     <string name="back_to_home">Torna alla home</string>
@@ -152,6 +157,8 @@
     <string name="match_system">Come il sistema</string>
     <string name="medium">Media</string>
     <string name="merge">Unisci</string>
+    <string name="merge_notes">Unisci le note</string>
+    <string name="merge_notes_confirm">Unire %1$d note in una sola? Le loro pagine andranno nella nota più vecchia, in ordine di creazione. Le altre note verranno eliminate.</string>
     <string name="more">Altro</string>
     <string name="move">Sposta</string>
     <string name="move_to">Sposta in</string>
@@ -304,4 +311,16 @@ Il doppio clic del tasto della penna funziona solo in Tratto: nelle altre app An
     <string name="folder_backup_no_folder">Nessuna cartella scelta. Tratto ci salva un file .tratto, anche ogni giorno, e tiene gli ultimi %1$s. Va bene anche la cartella di un\'app che sincronizza, come Nextcloud o Syncthing. Per ripristinare, usa « Ripristina da un file ».</string>
     <string name="google_oauth_not_configured">Accesso a Google non configurato per questa applicazione: in Google Cloud Console serve un client OAuth Android con il package e lo SHA-1 giusti.</string>
     <string name="unnamed">senza nome</string>
+    <string name="keep_pulling_for_a_new_page">Continua a tirare per una pagina nuova</string>
+    <string name="release_to_add_a_page">Rilascia per aggiungere una pagina</string>
+    <string name="pdf_saved">PDF salvato</string>
+    <string name="share_title">Condividi « %1$s »</string>
+    <string name="cannot_open_pdf">Impossibile aprire il PDF: %1$s</string>
+    <string name="pdf_has_no_pages">Il PDF non ha pagine</string>
+    <string name="could_not_read_handwriting">Impossibile leggere la scrittura</string>
+    <string name="download_failed_check_connection">Download non riuscito: controlla la connessione</string>
+    <string name="model_download_failed">Download del modello non riuscito</string>
+    <string name="model_download_failed_detail">Download del modello non riuscito: %1$s</string>
+    <string name="custom_color">Colore personalizzato</string>
+    <string name="google_drive_access_needed_again">Serve di nuovo l\'accesso a Google Drive.</string>
 </resources>
