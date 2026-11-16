@@ -11,7 +11,7 @@
     </style>
     <!-- Nota rapida: finestra trasparente sopra l'app in primo piano. Velo, foglietto e animazioni
          li disegna Compose; eredita chiaro o scuro da Tema.Tratto. -->
-    <style name="Tema.Tratto.NotaRapida">
+    <style name="Tema.Tratto.QuickNote">
         <item name="android:windowIsTranslucent">true</item>
         <item name="android:windowBackground">@android:color/transparent</item>
         <item name="android:windowNoTitle">true</item>

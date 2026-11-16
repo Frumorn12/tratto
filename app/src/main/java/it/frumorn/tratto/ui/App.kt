@@ -16,10 +16,10 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
-import it.frumorn.tratto.ui.editor.SchermataEditor
-import it.frumorn.tratto.ui.editor.SessioneEditor
-import it.frumorn.tratto.ui.impostazioni.Impostazioni
-import it.frumorn.tratto.ui.libreria.Libreria
+import it.frumorn.tratto.ui.editor.EditorScreen
+import it.frumorn.tratto.ui.editor.EditorSession
+import it.frumorn.tratto.ui.settings.Settings
+import it.frumorn.tratto.ui.library.Library
 import it.frumorn.tratto.ui.theme.TrattoMotion
 
 /**
@@ -29,7 +29,7 @@ import it.frumorn.tratto.ui.theme.TrattoMotion
  */
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
-fun App(stato: StatoApp, alSessione: (SessioneEditor?) -> Unit) {
+fun App(stato: AppState, alSessione: (EditorSession?) -> Unit) {
     SharedTransitionLayout {
         AnimatedContent(
             targetState = stato.schermata,
@@ -38,9 +38,9 @@ fun App(stato: StatoApp, alSessione: (SessioneEditor?) -> Unit) {
                 val verso = targetState
                 val da = initialState
                 when {
-                    verso is Schermata.Impostazioni ->
+                    verso is Schermata.Settings ->
                         (slideInHorizontally(tween(TrattoMotion.ENTER_MS, easing = TrattoMotion.Enter)) { it / 4 } + fadeIn(tween(TrattoMotion.ENTER_MS))) togetherWith fadeOut(tween(TrattoMotion.EXIT_MS))
-                    da is Schermata.Impostazioni ->
+                    da is Schermata.Settings ->
                         fadeIn(tween(TrattoMotion.ENTER_MS)) togetherWith (slideOutHorizontally(tween(TrattoMotion.EXIT_MS, easing = TrattoMotion.Exit)) { it / 4 } + fadeOut(tween(TrattoMotion.EXIT_MS)))
                     verso is Schermata.Editor && da is Schermata.Editor ->
                         // Nota nuova aperta dalla penna mentre se ne scrive un'altra: sale dal basso.
@@ -52,16 +52,16 @@ fun App(stato: StatoApp, alSessione: (SessioneEditor?) -> Unit) {
             label = "schermata",
         ) { s ->
             when (s) {
-                Schermata.Libreria -> Libreria(stato, this)
-                Schermata.Impostazioni -> Impostazioni(stato)
+                Schermata.Library -> Library(stato, this)
+                Schermata.Settings -> Settings(stato)
                 is Schermata.Editor -> {
                     val context = LocalContext.current
-                    val sessione = remember(s.id) { SessioneEditor(stato, s.id, context).also { it.apri() } }
+                    val sessione = remember(s.id) { EditorSession(stato, s.id, context).also { it.apri() } }
                     DisposableEffect(sessione) {
                         alSessione(sessione)
                         onDispose { sessione.chiudi(); alSessione(null) }
                     }
-                    SchermataEditor(stato, s, sessione, this)
+                    EditorScreen(stato, s, sessione, this)
                 }
             }
         }

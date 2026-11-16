@@ -1,4 +1,4 @@
-<p><b>Tratto</b> ("stroke", as in a pen stroke) is a handwriting notes app for Android tablets with an active stylus (S Pen, Wacom EMR, USI). Ink follows the pen tip with no lag, reacts to pressure and tilt, and your notes stay on the tablet in simple, documented files. The interface is in Italian.</p>
+<p><b>Tratto</b> ("stroke", as in a pen stroke) is a handwriting notes app for Android tablets with an active stylus (S Pen, Wacom EMR, USI). Ink follows the pen tip with no lag, reacts to pressure and tilt, and your notes stay on the tablet in simple, documented files. The interface follows the tablet language: English, French or Italian.</p>
 
 <p><b>Writing</b></p>
 <ul>

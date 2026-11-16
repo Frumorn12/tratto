@@ -50,6 +50,8 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import it.frumorn.tratto.R
+import it.frumorn.tratto.ui.testo
+import it.frumorn.tratto.ui.testoOra
 import it.frumorn.tratto.backup.rememberAccessoDrive
 import it.frumorn.tratto.googledocs.FaseDocs
 import it.frumorn.tratto.googledocs.GoogleDocs
@@ -69,7 +71,7 @@ import kotlinx.coroutines.launch
 @Stable
 class ControlloDocs internal constructor(
     private val context: Context,
-    private val sessione: SessioneEditor,
+    private val sessione: EditorSession,
     private val scope: CoroutineScope,
     stati: State<Map<String, StatoDocs>>,
 ) {
@@ -92,11 +94,11 @@ class ControlloDocs internal constructor(
                 // Il documento parte dalla nota com'e' adesso, anche con i tratti degli ultimi secondi.
                 sessione.salvaEAttendi()
                 GoogleDocs.collega(context, sessione.id)
-                avviso("Nota collegata a Google Docs: il documento si aggiorna mentre scrivi")
+                avviso(testoOra(R.string.note_linked_to_google_docs_the_document_updates))
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                avviso("Collegamento non riuscito: ${e.message ?: "errore sconosciuto"}")
+                avviso(testoOra(R.string.could_not_link, e.message ?: testoOra(R.string.unknown_error)))
             }
         }
     }
@@ -106,14 +108,14 @@ class ControlloDocs internal constructor(
         try {
             context.startActivity(Intent(Intent.ACTION_VIEW, GoogleDocs.indirizzo(s.documento).toUri()))
         } catch (_: ActivityNotFoundException) {
-            avviso("Nessuna app per aprire il documento")
+            avviso(testoOra(R.string.no_app_to_open_the_document))
         }
     }
 
     internal fun scollega() {
         scope.launch {
             GoogleDocs.scollega(context, sessione.id)
-            avviso("Nota scollegata. Il documento resta su Google Drive.")
+            avviso(testoOra(R.string.note_unlinked_the_document_stays_on_google_drive))
         }
     }
 
@@ -123,7 +125,7 @@ class ControlloDocs internal constructor(
         when {
             s.serveAccesso -> chiediAccesso { GoogleDocs.sincronizzaOra(context, sessione.id) }
             s.fase == FaseDocs.ERRORE || s.fase == FaseDocs.RIPROVA -> {
-                avviso(s.messaggio ?: "Aggiornamento non riuscito: riprovo")
+                avviso(s.messaggio ?: testoOra(R.string.update_failed_trying_again))
                 GoogleDocs.sincronizzaOra(context, sessione.id)
             }
             else -> apri()
@@ -138,7 +140,7 @@ class ControlloDocs internal constructor(
             else scope.launch { try { poi() } finally { collegando = false } }
         }.onFailure {
             collegando = false
-            avviso(it.message ?: "Accesso a Google non riuscito")
+            avviso(it.message ?: testoOra(R.string.could_not_access_google))
         }
     }
 
@@ -152,7 +154,7 @@ class ControlloDocs internal constructor(
 
 /** Da chiamare nella barra dell'editor, che resta sempre in pagina: tiene aperta anche la schermata del consenso. */
 @Composable
-fun rememberGoogleDocs(sessione: SessioneEditor): ControlloDocs {
+fun rememberGoogleDocs(sessione: EditorSession): ControlloDocs {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val stati = remember(context) { GoogleDocs.stati(context) }.collectAsState()
@@ -196,12 +198,12 @@ fun ChipGoogleDocs(docs: ControlloDocs) {
         }
         val alfa = if (fase == FaseDocs.IN_ATTESA) 0.45f else 1f
         val descrizione = "Google Docs: " + when (fase) {
-            FaseDocs.COLLEGATA -> "collegato. Tocca per aprire il documento"
-            FaseDocs.IN_ATTESA -> "si aggiorna tra poco. Tocca per aprire il documento"
-            FaseDocs.IN_CORSO -> "aggiornamento in corso. Tocca per aprire il documento"
-            FaseDocs.AGGIORNATA -> "aggiornato. Tocca per aprire il documento"
-            FaseDocs.RIPROVA -> "aggiornamento rimandato. Tocca per riprovare"
-            FaseDocs.ERRORE -> "errore. Tocca per sapere cosa succede"
+            FaseDocs.COLLEGATA -> testo(R.string.linked_tap_to_open_the_document)
+            FaseDocs.IN_ATTESA -> testo(R.string.update_coming_tap_to_open_the_document)
+            FaseDocs.IN_CORSO -> testo(R.string.updating_tap_to_open_the_document)
+            FaseDocs.AGGIORNATA -> testo(R.string.up_to_date_tap_to_open_the_document)
+            FaseDocs.RIPROVA -> testo(R.string.update_postponed_tap_to_try_again)
+            FaseDocs.ERRORE -> testo(R.string.error_tap_to_learn_more)
         }
         Surface(
             onClick = { docs.tocco() },
@@ -232,16 +234,16 @@ fun VociGoogleDocs(docs: ControlloDocs, chiudiMenu: () -> Unit) {
     Text("GOOGLE DOCS", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
     if (docs.stato == null) {
         DropdownMenuItem(
-            text = { Text("Collega a Google Docs") }, leadingIcon = { Icona(R.drawable.ic_link, null) }, enabled = !docs.collegando,
+            text = { Text(testo(R.string.link_to_google_docs)) }, leadingIcon = { Icona(R.drawable.ic_link, null) }, enabled = !docs.collegando,
             onClick = { chiudiMenu(); docs.collega() },
         )
     } else {
         DropdownMenuItem(
-            text = { Text("Apri in Google Docs") }, leadingIcon = { Icona(R.drawable.ic_description, null) },
+            text = { Text(testo(R.string.open_in_google_docs)) }, leadingIcon = { Icona(R.drawable.ic_description, null) },
             onClick = { chiudiMenu(); docs.apri() },
         )
         DropdownMenuItem(
-            text = { Text("Scollega da Google Docs") }, leadingIcon = { Icona(R.drawable.ic_link_off, null) },
+            text = { Text(testo(R.string.unlink_from_google_docs)) }, leadingIcon = { Icona(R.drawable.ic_link_off, null) },
             onClick = { chiudiMenu(); docs.scollega() },
         )
     }

@@ -10,7 +10,7 @@ import androidx.compose.runtime.remember
 class ControlloDocs internal constructor()
 
 @Composable
-fun rememberGoogleDocs(sessione: SessioneEditor): ControlloDocs = remember { ControlloDocs() }
+fun rememberGoogleDocs(sessione: EditorSession): ControlloDocs = remember { ControlloDocs() }
 
 /** Nessuna nota e' collegata: niente pallino. */
 @Composable

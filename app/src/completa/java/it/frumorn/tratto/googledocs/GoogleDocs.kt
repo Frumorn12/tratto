@@ -7,11 +7,11 @@ import it.frumorn.tratto.TrattoApp
 import it.frumorn.tratto.backup.DriveBackup
 import it.frumorn.tratto.backup.DriveRest
 import it.frumorn.tratto.backup.ErroreDrive
-import it.frumorn.tratto.backup.ImpostazioniBackup
+import it.frumorn.tratto.backup.BackupSettings
 import it.frumorn.tratto.backup.temporaneo
 import it.frumorn.tratto.data.scriviAtomico
 import it.frumorn.tratto.editor.DocumentoAperto
-import it.frumorn.tratto.editor.LivelloDocumento
+import it.frumorn.tratto.editor.DocumentLayer
 import it.frumorn.tratto.editor.SpostamentoTratti
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -63,7 +63,7 @@ data class StatoDocs(
  * - [finisciInBackground], alla chiusura dell'editor o quando l'app va in secondo piano, affida gli
  *   aggiornamenti mancanti a [DocsWorker], che aspetta la rete e finisce anche ad app chiusa.
  *
- * Come si aggiorna il documento: vedi [SincroniaDocs] e docs/google-docs.md.
+ * Come si aggiorna il documento: vedi [DocsSync] e docs/google-docs.md.
  */
 object GoogleDocs {
     /** Il collegamento a Google Docs c'e' in questa versione dell'app: la UI mostra le sue voci. */
@@ -71,25 +71,25 @@ object GoogleDocs {
 
     /**
      * La nota mostra il documento (testo di Google Docs sotto l'inchiostro) e ci mette i suoi disegni
-     * davanti al testo con lo script di Google ([SincroniaDisegni]), invece di copiarci i suoi blocchi.
+     * davanti al testo con lo script di Google ([DrawingSync]), invece di copiarci i suoi blocchi.
      */
     private const val MODO_DOCUMENTO = true
 
     /**
      * Attesa dopo un salvataggio prima di aggiornare il documento. Nessuna: l'editor aspetta gia' la
      * pausa (o al massimo due secondi scrivendo di fila) e un aggiornamento in coda prende il posto
-     * dell'altro (vedi [Turni]).
+     * dell'altro (vedi [Turns]).
      */
     private const val RITARDO_MS = 0L
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     /** Un aggiornamento alla volta, per tutte le note, e per ogni nota al massimo uno in attesa. */
-    private val turni = Turni(scope)
+    private val turni = Turns(scope)
     private val lock = Any()
 
     // Protetti da lock (dati si legge anche senza, per sapere se e' gia' caricato).
-    @Volatile private var dati: CollegamentiDocs? = null
+    @Volatile private var dati: DocsLinks? = null
     private val generazioni = HashMap<String, Int>()
     private val sporche = HashSet<String>()
 
@@ -100,19 +100,19 @@ object GoogleDocs {
 
     /**
      * La nota [notaId] e' aperta nell'editor: se e' (o diventa) collegata, il suo documento si
-     * disegna sotto l'inchiostro e si aggiorna dal vivo (vedi [DocumentoVivo]). [mostra] riceve il
+     * disegna sotto l'inchiostro e si aggiorna dal vivo (vedi [LiveDocument]). [mostra] riceve il
      * documento impaginato, da un thread qualsiasi.
      */
     fun apri(
         context: Context,
         notaId: String,
         scope: CoroutineScope,
-        mostra: (LivelloDocumento) -> Unit,
+        mostra: (DocumentLayer) -> Unit,
         segui: (List<SpostamentoTratti>) -> Unit,
     ): DocumentoAperto {
         val app = context.applicationContext
         scope.launch(Dispatchers.IO) { carica(app) }
-        return DocumentoVivo(
+        return LiveDocument(
             app, notaId, scope,
             documento = { collegamento(notaId)?.documento },
             escludi = { collegamento(notaId)?.disegni?.mapTo(HashSet()) { it.oggetto }.orEmpty() },
@@ -185,7 +185,7 @@ object GoogleDocs {
         collegamento(notaId)?.let { return@withContext it.documento }
         val archivio = TrattoApp.archivio(app)
         archivio.caricaIndice()
-        val info = archivio.note.value.find { it.id == notaId } ?: throw IOException("La nota non esiste più.")
+        val info = archivio.note.value.find { it.id == notaId } ?: throw IOException("La note n'existe plus.")
         val documento = turni.esegui {
             val servizio = servizio(app)
             val id = servizio.creaDocumento(info)
@@ -231,7 +231,7 @@ object GoogleDocs {
 
     private suspend fun esegui(app: Context, notaId: String) = turni.esegui { eseguiNelTurno(app, notaId) }
 
-    /** Aggiorna il documento della nota; da chiamare solo al proprio turno (vedi [Turni]). */
+    /** Aggiorna il documento della nota; da chiamare solo al proprio turno (vedi [Turns]). */
     private suspend fun eseguiNelTurno(app: Context, notaId: String) {
         carica(app)
         val link = collegamento(notaId) ?: return
@@ -244,9 +244,9 @@ object GoogleDocs {
             val archivio = TrattoApp.archivio(app)
             val nota = NotaArchivio(archivio, notaId)
             if (MODO_DOCUMENTO) {
-                if (BuildConfig.SCRIPT_DOCS.isEmpty()) throw IOException("Manca lo script di Google Docs: i disegni restano su Tratto.")
+                if (BuildConfig.SCRIPT_DOCS.isEmpty()) throw IOException("Le script Google Docs manque : les dessins restent sur Tratto.")
                 val caratteri = caratteri(app)
-                val disegni = SincroniaDisegni(
+                val disegni = DrawingSync(
                     DocsRest(servizio.rest), ScriptDocs(servizio.rest, BuildConfig.SCRIPT_DOCS), nota,
                     impagina = { m ->
                         val p = PagineDoc(m, caratteri, { emptySet() }) { null }
@@ -266,7 +266,7 @@ object GoogleDocs {
                     )
                 }
             } else {
-                val sincronia = SincroniaDocs(servizio, nota, File(app.cacheDir, "google-docs"))
+                val sincronia = DocsSync(servizio, nota, File(app.cacheDir, "google-docs"))
                 try {
                     if (avanziDaPulire) {
                         servizio.pulisciAvanzi()
@@ -293,7 +293,7 @@ object GoogleDocs {
             throw e
         } catch (e: DriveBackup.AccessoNecessario) {
             rest = null
-            imposta(notaId) { it.copy(fase = FaseDocs.ERRORE, messaggio = "Serve di nuovo l'accesso a Google: tocca per ricollegare.", serveAccesso = true) }
+            imposta(notaId) { it.copy(fase = FaseDocs.ERRORE, messaggio = "L'accès à Google est à redonner : touchez pour reconnecter.", serveAccesso = true) }
             throw e
         } catch (e: Exception) {
             android.util.Log.w("GoogleDocs", "Aggiornamento di $notaId non riuscito", e)
@@ -305,15 +305,15 @@ object GoogleDocs {
     }
 
     /** Drive e Docs con il token dell'account collegato; lancia [DriveBackup.AccessoNecessario] se serve il consenso. */
-    private suspend fun servizio(app: Context): ServizioGoogle {
+    private suspend fun servizio(app: Context): GoogleService {
         // Il client si tiene tra un aggiornamento e l'altro: chiedere il token a Play services ogni
         // volta costa tempo, e quando scade il client lo rinnova da solo.
         // Se nel frattempo e' cambiato l'account collegato, il client vecchio non serve piu'.
-        val account = ImpostazioniBackup.stato(app).value.account
+        val account = BackupSettings.stato(app).value.account
         if (account != restAccount) rest = null
         val r = rest ?: DriveBackup(app, conDocumenti = true).rest().also { rest = it; restAccount = account }
         val d = synchronized(lock) { dati!! }
-        return ServizioGoogle(r, CartelleDocs(r, d.cartella, d.immagini))
+        return GoogleService(r, CartelleDocs(r, d.cartella, d.immagini))
     }
 
     /** Il client di Google dell'ultimo aggiornamento; si dimentica quando serve di nuovo il consenso. */
@@ -327,12 +327,12 @@ object GoogleDocs {
 
     private fun messaggio(e: Exception): String = when {
         e is UnknownHostException || e is java.net.ConnectException ->
-            "Nessuna connessione a Internet: il documento si aggiorna quando torna la rete."
-        e is SocketTimeoutException -> "Google non risponde: si riproverà."
+            "Pas de connexion à Internet : le document se met à jour quand le réseau revient."
+        e is SocketTimeoutException -> "Google ne répond pas : nouvel essai."
         e is ErroreDrive && e.codice == 404 ->
-            "Il documento Google collegato non c'è più. Scollega la nota e collegala di nuovo."
-        e is JSONException -> "Risposta non valida da Google."
-        else -> e.message ?: "Aggiornamento di Google Docs non riuscito."
+            "Le document Google lié n'existe plus. Déliez la note et liez-la à nouveau."
+        e is JSONException -> "Réponse invalide de Google."
+        else -> e.message ?: "Échec de la mise à jour de Google Docs."
     }
 
     // ---------------------------------------------------------------- stato
@@ -370,15 +370,15 @@ object GoogleDocs {
         synchronized(lock) {
             if (dati != null) return
             val f = file(app)
-            val d = CollegamentiDocs.leggi(if (f.isFile) f.readText() else null)
+            val d = DocsLinks.leggi(if (f.isFile) f.readText() else null)
             dati = d
             _stati.value = d.note.mapValues { StatoDocs(it.value.documento) }
         }
     }
 
-    private fun modificaDati(app: Context, f: (CollegamentiDocs) -> CollegamentiDocs) {
+    private fun modificaDati(app: Context, f: (DocsLinks) -> DocsLinks) {
         synchronized(lock) {
-            val prima = dati ?: CollegamentiDocs()
+            val prima = dati ?: DocsLinks()
             val dopo = f(prima)
             if (dopo == prima) return
             scriviAtomico(file(app), dopo.json().toString().toByteArray())

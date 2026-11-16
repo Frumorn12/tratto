@@ -1,0 +1,32 @@
+<p><b>Tratto</b> (le « trait » de plume) est une application de notes manuscrites pour tablettes Android avec un stylet actif (S Pen, Wacom EMR, USI). L'encre suit la pointe sans retard, réagit à la pression et à l'inclinaison, et les notes restent sur la tablette dans des fichiers simples et documentés. L'interface suit la langue de la tablette : français, italien ou anglais.</p>
+
+<p><b>Écriture</b></p>
+<ul>
+<li>Stylo plume avec une plume à 45°, stylo, crayon, surligneur (passé sous l'encre) et pinceau</li>
+<li>Pression et inclinaison du stylet, sensibilité réglable</li>
+<li>Gomme par trait entier ou partielle, aussi avec le bouton du stylet</li>
+<li>Lasso : déplacer, redimensionner, recolorer, copier et coller entre les notes</li>
+<li>La paume posée est ignorée ; deux doigts pour faire défiler et zoomer</li>
+<li>Pages blanches, lignées, quadrillées ou pointillées ; thème clair et sombre</li>
+</ul>
+
+<p><b>Rapide</b></p>
+<ul>
+<li>Double-clic sur le bouton du stylet : une nouvelle note s'ouvre aussitôt</li>
+<li>Tuile dans les réglages rapides et raccourcis sur l'icône</li>
+<li>Démarrage en moins d'une demi-seconde</li>
+</ul>
+
+<p><b>PDF</b></p>
+<ul>
+<li>Ouvrez ou partagez un PDF vers Tratto et écrivez dessus</li>
+<li>Export en PDF vectoriel, ou une page en image</li>
+</ul>
+
+<p><b>Sauvegarde</b></p>
+<ul>
+<li>Toutes les notes dans un seul fichier .tratto, à restaurer en fusionnant ou en remplaçant</li>
+<li>Sauvegarde automatique dans un dossier de votre choix (Nextcloud ou Syncthing conviennent aussi), seulement en Wi‑Fi ou en charge si vous préférez</li>
+</ul>
+
+<p>Pas de compte, pas de publicité, pas de statistiques. Ceci est la version libre : la version complète, depuis le dépôt F-Droid de l'auteur, ajoute la transcription de l'écriture, les notes mathématiques et la sauvegarde Google Drive, qui dépendent de bibliothèques Google non libres.</p>
