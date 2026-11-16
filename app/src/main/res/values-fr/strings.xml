@@ -194,6 +194,9 @@
     <string name="open_in_google_docs">Ouvrir dans Google Docs</string>
     <string name="open_in_tratto">Ouvrir dans Tratto</string>
     <string name="page_background">FOND DE PAGE</string>
+    <string name="page_layout">MISE EN PAGE</string>
+    <string name="layout_document">Document (marges)</string>
+    <string name="layout_canvas">Canvas libre</string>
     <string name="pages">PAGES</string>
     <string name="page_for_new_notes">Page des nouvelles notes</string>
     <string name="pages_2">Pages</string>

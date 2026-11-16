@@ -2,11 +2,13 @@ package it.frumorn.tratto.editor
 
 import androidx.ink.strokes.Stroke
 import it.frumorn.tratto.data.Archive
+import it.frumorn.tratto.data.LayoutPagina
 import it.frumorn.tratto.data.NotaInfo
 import it.frumorn.tratto.data.Oggetto
 import it.frumorn.tratto.data.Pagina
 import it.frumorn.tratto.data.Sfondo
 import it.frumorn.tratto.data.Testo
+import it.frumorn.tratto.data.TestoRicco
 import it.frumorn.tratto.data.Tratto
 import it.frumorn.tratto.ink.Brushes
 import java.util.concurrent.atomic.AtomicLong
@@ -85,6 +87,12 @@ class PaginaViva(var pagina: Pagina) {
         return i
     }
 
+    fun sostituisciOggetti(nuovi: List<Oggetto>) {
+        oggetti.clear()
+        oggetti.addAll(nuovi)
+        oggettiModificati()
+    }
+
     private fun modificata() {
         sporca = true
         versione++
@@ -131,6 +139,23 @@ class ModificaRotazione(
     val trattiDopo: List<Tratto>,
     val oggettiPrima: List<Oggetto>,
     val oggettiDopo: List<Oggetto>,
+)
+
+/**
+ * Remplacement d'une plage de pages (reflow document / bascule de layout) : métadonnées + objets
+ * par page, avec éventuelle insertion ou suppression de [PaginaViva] dans la note.
+ */
+class ModificaFlussoDocumento(
+    val indice: Int,
+    val prima: List<StatoPaginaFlusso>,
+    val dopo: List<StatoPaginaFlusso>,
+)
+
+/** État d'une page dans un [ModificaFlussoDocumento]. */
+class StatoPaginaFlusso(
+    val viva: PaginaViva,
+    val meta: Pagina,
+    val oggetti: List<Oggetto>,
 )
 
 /** La nota aperta nell'editor, con la cronologia per annullare e ripetere. */
@@ -208,6 +233,7 @@ class Document(private val archivio: Archive, info: NotaInfo) {
             is Modifica -> { applica(m, inverso = true); m.pagina }
             is ModificaPagine -> { applicaPagine(m, inverso = true); null }
             is ModificaRotazione -> { applicaRotazione(m, inverso = true); m.pagina }
+            is ModificaFlussoDocumento -> { applicaFlusso(m, inverso = true); m.prima.firstOrNull()?.viva }
             else -> null
         }
         alCambio?.invoke()
@@ -221,6 +247,7 @@ class Document(private val archivio: Archive, info: NotaInfo) {
             is Modifica -> { applica(m, inverso = false); m.pagina }
             is ModificaPagine -> { applicaPagine(m, inverso = false); null }
             is ModificaRotazione -> { applicaRotazione(m, inverso = false); m.pagina }
+            is ModificaFlussoDocumento -> { applicaFlusso(m, inverso = false); m.dopo.firstOrNull()?.viva }
             else -> null
         }
         alCambio?.invoke()
@@ -246,14 +273,22 @@ class Document(private val archivio: Archive, info: NotaInfo) {
 
     fun aggiungiPagina(dopo: Int = pagine.lastIndex, sfondo: Sfondo? = null): PaginaViva {
         val base = pagine.getOrNull(dopo)?.pagina
+        val layout = base?.layout ?: LayoutPagina.CANVAS
         val nuova = PaginaViva(
             Pagina(
                 Archive.nuovoId(),
                 sfondo ?: base?.sfondo ?: info.sfondo,
                 larghezza = base?.larghezza ?: it.frumorn.tratto.data.Foglio.LARGHEZZA,
                 altezza = base?.altezza ?: it.frumorn.tratto.data.Foglio.ALTEZZA,
+                layout = layout,
             ),
-        ).apply { caricata = true }
+        ).apply {
+            caricata = true
+            if (layout == LayoutPagina.DOCUMENT) {
+                oggetti += DocumentMargins.corpo(pagina, TestoRicco.VUOTO)
+                oggettiSporchi = true
+            }
+        }
         val m = ModificaPagine(dopo + 1, nuova, aggiunta = true)
         applicaPagine(m, inverso = false)
         indietro.addLast(m)
@@ -279,8 +314,13 @@ class Document(private val archivio: Archive, info: NotaInfo) {
             oggettiPrima = ArrayList(p.oggetti)
         }
         val trattiDopo = trattiPrima.map { ruotaTratto(it, prima.larghezza, prima.altezza, q) }
-        val oggettiDopo = oggettiPrima.map { ruotaOggetto(it, prima.larghezza, prima.altezza, q) }
         val dopo = ruotaPaginaMeta(prima, q)
+        val oggettiDopo = oggettiPrima.map { o ->
+            val r = ruotaOggetto(o, prima.larghezza, prima.altezza, q)
+            if (dopo.layout == LayoutPagina.DOCUMENT && r is Testo && DocumentMargins.estCorpo(r.id)) {
+                DocumentMargins.ancora(dopo, r)
+            } else r
+        }
         val m = ModificaRotazione(p, prima, dopo, trattiPrima, trattiDopo, oggettiPrima, oggettiDopo)
         applicaRotazione(m, inverso = false)
         indietro.addLast(m)
@@ -372,6 +412,150 @@ class Document(private val archivio: Archive, info: NotaInfo) {
         p.pagina = p.pagina.copy(sfondo = sfondo)
         pagineSporche = true
         alCambio?.invoke()
+    }
+
+    /** Bascule la page [indice] en mode document ou canvas libre. */
+    fun cambiaLayout(indice: Int, layout: LayoutPagina) {
+        val p = pagine.getOrNull(indice) ?: return
+        if (p.pagina.layout == layout) return
+        caricaTratti(p)
+        if (layout == LayoutPagina.DOCUMENT) {
+            val oggettiPrima = synchronized(p) { ArrayList(p.oggetti) }
+            val metaPrima = p.pagina
+            val esistente = oggettiPrima.filterIsInstance<Testo>().firstOrNull { DocumentMargins.estCorpo(it.id) }
+            val promuovi = oggettiPrima.filterIsInstance<Testo>()
+                .filter { !DocumentMargins.estCorpo(it.id) }
+                .maxByOrNull { it.contenuto.lunghezza }
+            val contenuto = esistente?.contenuto ?: promuovi?.contenuto ?: TestoRicco.VUOTO
+            val metaDoc = metaPrima.copy(layout = LayoutPagina.DOCUMENT)
+            val z = DocumentMargins.zone(metaDoc)
+            val tranches = DocumentFlow.spezza(contenuto, z[2], z[3])
+            val n = tranches.size.coerceAtLeast(1)
+            val statiPrima = listOf(StatoPaginaFlusso(p, metaPrima, oggettiPrima))
+            val statiDopo = ArrayList<StatoPaginaFlusso>()
+            for (k in 0 until n) {
+                val v = if (k == 0) p else PaginaViva(
+                    Pagina(
+                        Archive.nuovoId(),
+                        metaDoc.sfondo,
+                        larghezza = metaDoc.larghezza,
+                        altezza = metaDoc.altezza,
+                        layout = LayoutPagina.DOCUMENT,
+                    ),
+                ).apply { caricata = true }
+                val meta = if (k == 0) metaDoc else v.pagina
+                val base = if (k == 0) {
+                    ArrayList(oggettiPrima.filterNot {
+                        it is Testo && (DocumentMargins.estCorpo(it.id) || (promuovi != null && it.id == promuovi.id))
+                    })
+                } else ArrayList()
+                val tr = tranches.getOrElse(k) { TrancheCorpo(TestoRicco.VUOTO, continua = false) }
+                base.add(0, DocumentMargins.corpo(meta, tr.contenuto, tr.continua))
+                statiDopo += StatoPaginaFlusso(v, meta, base)
+            }
+            registraFlusso(ModificaFlussoDocumento(indice, statiPrima, statiDopo))
+        } else {
+            // DOCUMENT → CANVAS : le corps de cette page devient une boîte normale (pas toute la chaîne).
+            val oggettiPrima = synchronized(p) { ArrayList(p.oggetti) }
+            val metaPrima = p.pagina
+            val corpo = oggettiPrima.filterIsInstance<Testo>().firstOrNull { DocumentMargins.estCorpo(it.id) }
+            val oggettiDopo = ArrayList(oggettiPrima)
+            if (corpo != null) {
+                val i = oggettiDopo.indexOfFirst { it.id == corpo.id }
+                if (i >= 0) oggettiDopo[i] = corpo.copy(id = Archive.nuovoId())
+            }
+            val metaDopo = metaPrima.copy(layout = LayoutPagina.CANVAS)
+            registraFlusso(
+                ModificaFlussoDocumento(
+                    indice,
+                    listOf(StatoPaginaFlusso(p, metaPrima, oggettiPrima)),
+                    listOf(StatoPaginaFlusso(p, metaDopo, oggettiDopo)),
+                ),
+            )
+        }
+    }
+
+    /**
+     * Réécrit le corps de la chaîne DOCUMENT contenant [indice] à partir de [contenuto] global,
+     * en créant ou supprimant des pages DOCUMENT si besoin.
+     */
+    fun reflowCatena(indice: Int, contenuto: TestoRicco) {
+        val catena = DocumentFlow.catena(pagine, indice)
+        if (catena.isEmpty()) return
+        for (i in catena) caricaTratti(pagine[i])
+
+        val primaPage = pagine[catena.first]
+        val z = DocumentMargins.zone(primaPage.pagina)
+        val tranches = DocumentFlow.spezza(contenuto, z[2], z[3])
+        val n = tranches.size.coerceAtLeast(1)
+
+        val statiPrima = catena.map { i ->
+            val v = pagine[i]
+            StatoPaginaFlusso(v, v.pagina, synchronized(v) { ArrayList(v.oggetti) })
+        }
+
+        val vive = ArrayList<PaginaViva>()
+        for (k in 0 until n) {
+            if (k < statiPrima.size) {
+                vive += statiPrima[k].viva
+            } else {
+                val base = primaPage.pagina
+                vive += PaginaViva(
+                    Pagina(
+                        Archive.nuovoId(),
+                        base.sfondo,
+                        larghezza = base.larghezza,
+                        altezza = base.altezza,
+                        layout = LayoutPagina.DOCUMENT,
+                    ),
+                ).apply { caricata = true }
+            }
+        }
+
+        val statiDopo = ArrayList<StatoPaginaFlusso>()
+        for (k in 0 until n) {
+            val v = vive[k]
+            val meta = v.pagina.copy(layout = LayoutPagina.DOCUMENT)
+            val sansCorpo = ArrayList(
+                (if (k < statiPrima.size) statiPrima[k].oggetti else emptyList())
+                    .filterNot { it is Testo && DocumentMargins.estCorpo(it.id) },
+            )
+            val tr = tranches.getOrElse(k) { TrancheCorpo(TestoRicco.VUOTO, continua = false) }
+            sansCorpo.add(0, DocumentMargins.corpo(meta, tr.contenuto, tr.continua))
+            statiDopo += StatoPaginaFlusso(v, meta, sansCorpo)
+        }
+
+        registraFlusso(ModificaFlussoDocumento(catena.first, statiPrima, statiDopo))
+    }
+
+    private fun registraFlusso(m: ModificaFlussoDocumento) {
+        applicaFlusso(m, inverso = false)
+        indietro.addLast(m)
+        if (indietro.size > 200) indietro.removeFirst()
+        avanti.clear()
+        alCambio?.invoke()
+    }
+
+    private fun applicaFlusso(m: ModificaFlussoDocumento, inverso: Boolean) {
+        val da = if (inverso) m.dopo else m.prima
+        val a = if (inverso) m.prima else m.dopo
+        if (da.isNotEmpty()) {
+            val start = m.indice.coerceIn(0, pagine.size)
+            if (start + da.size <= pagine.size && (0 until da.size).all { pagine[start + it] === da[it].viva }) {
+                repeat(da.size) { pagine.removeAt(start) }
+            } else {
+                da.forEach { pagine.remove(it.viva) }
+            }
+        }
+        val insertAt = m.indice.coerceIn(0, pagine.size)
+        for ((k, s) in a.withIndex()) {
+            pagine.add(insertAt + k, s.viva)
+            synchronized(s.viva) {
+                s.viva.pagina = s.meta
+                s.viva.sostituisciOggetti(s.oggetti)
+            }
+        }
+        pagineSporche = true
     }
 
     private fun applicaPagine(m: ModificaPagine, inverso: Boolean) {

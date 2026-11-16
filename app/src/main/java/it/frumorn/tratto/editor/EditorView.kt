@@ -1045,7 +1045,8 @@ class EditorView(context: Context) : FrameLayout(context), InProgressStrokesFini
      */
     private fun maniglie(o: Oggetto, r: RectF): List<Pair<Int, PointF>> = when (o) {
         is Immagine -> listOf(0 to PointF(r.left, r.top), 1 to PointF(r.right, r.top), 2 to PointF(r.right, r.bottom), 3 to PointF(r.left, r.bottom))
-        is Testo -> listOf(SINISTRA to PointF(r.left, r.centerY()), DESTRA to PointF(r.right, r.centerY()))
+        is Testo -> if (DocumentMargins.estCorpo(o.id)) emptyList()
+            else listOf(SINISTRA to PointF(r.left, r.centerY()), DESTRA to PointF(r.right, r.centerY()))
     }
 
     /** Su quale parte dell'oggetto selezionato cade il punto: una maniglia, [DENTRO] o [NESSUNA]. */
@@ -1068,6 +1069,8 @@ class EditorView(context: Context) : FrameLayout(context), InProgressStrokesFini
     private fun muoviOggetto(x: Float, y: Float) {
         val o = originale ?: return
         val s = selezioneOggetto ?: return
+        // Corps document : ancré aux marges, pas de drag / resize.
+        if (o is Testo && DocumentMargins.estCorpo(o.id)) return
         // Finche' non ci si muove davvero e' un tocco, non uno spostamento.
         if (anteprima == null && hypot(x - ox0, y - oy0) < soglia) return
         val dx = (x - ox0) / foglio.scala
@@ -1174,6 +1177,7 @@ class EditorView(context: Context) : FrameLayout(context), InProgressStrokesFini
         val d = documento ?: return
         val p = d.pagine.getOrNull(s.pagina) ?: return
         val o = oggettoSelezionato() ?: return
+        if (o is Testo && DocumentMargins.estCorpo(o.id) && p.pagina.layout == it.frumorn.tratto.data.LayoutPagina.DOCUMENT) return
         val i = synchronized(p) { p.indiceOggetto(o.id) }
         d.esegui(Modifica(p, emptyList(), emptyList(), listOf(i to o)))
         selezioneOggetto = null
@@ -1185,6 +1189,7 @@ class EditorView(context: Context) : FrameLayout(context), InProgressStrokesFini
     fun duplicaOggetto() {
         val s = selezioneOggetto ?: return
         val o = oggettoSelezionato() ?: return
+        if (o is Testo && DocumentMargins.estCorpo(o.id)) return
         val copia = when (o) {
             is Immagine -> o.copy(id = Archive.nuovoId(), x = o.x + 24f, y = o.y + 24f)
             is Testo -> o.copy(id = Archive.nuovoId(), x = o.x + 24f, y = o.y + 24f)
@@ -1289,11 +1294,30 @@ class EditorView(context: Context) : FrameLayout(context), InProgressStrokesFini
             val sotto = oggettoSotto(x0, y0)
             if (sotto != null && sotto.second is Testo) { apriTesto(sotto.first, sotto.second as Testo, x0, y0); return }
             if (apriDocumento(x0, y0)) return
-            puntoPagina(x0, y0)?.let { (i, pt) -> nuovoTesto(i, pt.x, pt.y) }
+            puntoPagina(x0, y0)?.let { (i, pt) ->
+                if (apriCorpoDocumento(i, x0, y0)) return
+                nuovoTesto(i, pt.x, pt.y)
+            }
         } else {
             val (i, pt) = puntoPagina(min(x0, x), y0) ?: return
+            if (documento?.pagine?.getOrNull(i)?.pagina?.layout == it.frumorn.tratto.data.LayoutPagina.DOCUMENT) {
+                apriCorpoDocumento(i, x0, y0)
+                return
+            }
             nuovoTesto(i, pt.x, pt.y, larghezza = tirato, tenereX = true)
         }
+    }
+
+    /** En mode document, ouvre le corps de page (marges) ; faux si la page n'est pas DOCUMENT. */
+    private fun apriCorpoDocumento(i: Int, tx: Float? = null, ty: Float? = null): Boolean {
+        val p = documento?.pagine?.getOrNull(i) ?: return false
+        if (p.pagina.layout != it.frumorn.tratto.data.LayoutPagina.DOCUMENT) return false
+        val corpo = DocumentFlow.corpoDi(p) ?: DocumentMargins.corpo(p.pagina, it.frumorn.tratto.data.TestoRicco.VUOTO).also {
+            val idx = synchronized(p) { p.oggetti.size }
+            documento?.esegui(Modifica(p, emptyList(), emptyList(), oggettiAggiunti = listOf(idx to it)))
+        }
+        apriTesto(i, corpo, tx, ty)
+        return true
     }
 
     /**
@@ -1386,7 +1410,18 @@ class EditorView(context: Context) : FrameLayout(context), InProgressStrokesFini
             m.documento.fine(nuovo)
         } else if (d != null && d.pagine.any { it === p }) {
             val orig = m.originale
-            if (orig == null) {
+            val iPag = d.pagine.indexOfFirst { it === p }
+            if (DocumentMargins.estCorpo(m.id) && iPag >= 0 && p.pagina.layout == it.frumorn.tratto.data.LayoutPagina.DOCUMENT) {
+                if (orig == null || nuovo != orig.contenuto) {
+                    val catena = DocumentFlow.catena(d.pagine, iPag)
+                    if (!catena.isEmpty()) {
+                        val global = DocumentFlow.concatenaConSostituzione(
+                            d.pagine, catena, iPag, nuovo, m.id == DocumentMargins.ID_CORPO_CONT,
+                        )
+                        d.reflowCatena(iPag, global)
+                    }
+                }
+            } else if (orig == null) {
                 if (!nuovo.vuoto) {
                     val i = synchronized(p) { p.oggetti.size }
                     d.esegui(Modifica(p, emptyList(), emptyList(), oggettiAggiunti = listOf(i to Testo(m.id, m.x, m.y, m.larghezza, nuovo))))
@@ -1653,7 +1688,14 @@ class EditorView(context: Context) : FrameLayout(context), InProgressStrokesFini
                 sotto != null && sotto.second is Testo -> apriTesto(sotto.first, sotto.second as Testo, x, y)
                 sotto != null -> selezionaOggetto(sotto.first, sotto.second.id)
                 apriDocumento(x, y) -> Unit
-                else -> puntoPagina(x, y)?.let { (i, pt) -> nuovoTesto(i, pt.x, pt.y) } ?: deselezionaOggetto()
+                else -> {
+                    val pt = puntoPagina(x, y)
+                    when {
+                        pt != null && apriCorpoDocumento(pt.first, x, y) -> Unit
+                        pt != null -> nuovoTesto(pt.first, pt.second.x, pt.second.y)
+                        else -> deselezionaOggetto()
+                    }
+                }
             }
             return true
         }
@@ -1661,6 +1703,8 @@ class EditorView(context: Context) : FrameLayout(context), InProgressStrokesFini
             selezionaOggetto(sotto.first, sotto.second.id)
             return true
         }
+        // Tap vide en mode document : ouvrir le corps.
+        puntoPagina(x, y)?.let { (i, _) -> if (apriCorpoDocumento(i, x, y)) return true }
         if (selezioneOggetto != null) {
             deselezionaOggetto()
             return true

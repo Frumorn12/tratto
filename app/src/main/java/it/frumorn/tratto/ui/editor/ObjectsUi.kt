@@ -113,14 +113,19 @@ fun BarraOggetto(s: EditorSession, modifier: Modifier) {
     s.oggetto?.let { ultimo = it }
     @Suppress("UNUSED_VARIABLE") val versione = s.versioneOggetto
     val (indice, quanti) = s.vista.ordineOggetto()
+    val corpoDocumento = ultimo is Testo && it.frumorn.tratto.editor.DocumentMargins.estCorpo((ultimo as Testo).id)
     Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.inverseSurface, contentColor = MaterialTheme.colorScheme.inverseOnSurface, shadowElevation = 6.dp, modifier = modifier) {
         Row(Modifier.padding(horizontal = 10.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             if (ultimo is Testo) AzioneSelezione(R.drawable.ic_edit, testo(R.string.edit)) { s.oggetti.modifica() }
             AzioneSelezione(R.drawable.ic_content_copy, testo(R.string.copy)) { s.oggetti.copia() }
-            AzioneSelezione(R.drawable.ic_library_add, testo(R.string.duplicate)) { s.oggetti.duplica() }
-            AzioneSelezione(R.drawable.ic_flip_to_front, testo(R.string.forward), attivo = indice in 0 until quanti - 1) { s.oggetti.avanti() }
-            AzioneSelezione(R.drawable.ic_flip_to_back, testo(R.string.backward), attivo = indice > 0) { s.oggetti.indietro() }
-            AzioneSelezione(R.drawable.ic_delete, testo(R.string.delete)) { s.oggetti.elimina() }
+            if (!corpoDocumento) {
+                AzioneSelezione(R.drawable.ic_library_add, testo(R.string.duplicate)) { s.oggetti.duplica() }
+            }
+            AzioneSelezione(R.drawable.ic_flip_to_front, testo(R.string.forward), attivo = !corpoDocumento && indice in 0 until quanti - 1) { s.oggetti.avanti() }
+            AzioneSelezione(R.drawable.ic_flip_to_back, testo(R.string.backward), attivo = !corpoDocumento && indice > 0) { s.oggetti.indietro() }
+            if (!corpoDocumento) {
+                AzioneSelezione(R.drawable.ic_delete, testo(R.string.delete)) { s.oggetti.elimina() }
+            }
             AzioneSelezione(R.drawable.ic_close, testo(R.string.close)) { s.oggetti.chiudi() }
         }
     }

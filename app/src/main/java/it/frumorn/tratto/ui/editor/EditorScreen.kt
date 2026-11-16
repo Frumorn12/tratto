@@ -371,6 +371,19 @@ private fun BarraSuperiore(stato: AppState, s: EditorSession, modifier: Modifier
                             DropdownMenuItem(text = { Text(nome) }, onClick = { s.cambiaSfondo(sf); menu = false })
                         }
                         HorizontalDivider()
+                        Text(testo(R.string.page_layout), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+                        val layoutCorrente = s.layoutPaginaCorrente()
+                        DropdownMenuItem(
+                            text = { Text(testo(R.string.layout_document)) },
+                            enabled = layoutCorrente != it.frumorn.tratto.data.LayoutPagina.DOCUMENT,
+                            onClick = { s.cambiaLayout(it.frumorn.tratto.data.LayoutPagina.DOCUMENT); menu = false },
+                        )
+                        DropdownMenuItem(
+                            text = { Text(testo(R.string.layout_canvas)) },
+                            enabled = layoutCorrente != it.frumorn.tratto.data.LayoutPagina.CANVAS,
+                            onClick = { s.cambiaLayout(it.frumorn.tratto.data.LayoutPagina.CANVAS); menu = false },
+                        )
+                        HorizontalDivider()
                         Text(testo(R.string.orientation), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
                         DropdownMenuItem(
                             text = { Text(testo(R.string.rotate_right)) },

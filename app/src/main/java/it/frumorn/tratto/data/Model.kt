@@ -3,6 +3,12 @@ package it.frumorn.tratto.data
 /** Sfondo di una pagina. */
 enum class Sfondo { BIANCO, RIGHE, QUADRETTI, PUNTINI }
 
+/**
+ * Disposition de la page : canvas libre (défaut) ou feuille d'écriture type document
+ * (corps de texte ancré aux marges, reflow multi-pages).
+ */
+enum class LayoutPagina { CANVAS, DOCUMENT }
+
 /** Strumenti di scrittura. L'ordine dei valori e' parte del formato su disco: aggiungere solo in fondo. */
 enum class Penna { STILOGRAFICA, PENNA, MATITA, EVIDENZIATORE, PENNELLO }
 
@@ -49,6 +55,7 @@ data class Pagina(
     val pdfPagina: Int = -1,
     val larghezza: Float = Foglio.LARGHEZZA,
     val altezza: Float = Foglio.ALTEZZA,
+    val layout: LayoutPagina = LayoutPagina.CANVAS,
 )
 
 /**

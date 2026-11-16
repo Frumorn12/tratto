@@ -260,8 +260,72 @@ data class TestoRicco(val paragrafi: List<Paragrafo>) {
         p.copy(frammenti = out)
     })
 
+    /**
+     * Tranche [inizio, fine) de [testoSemplice], en gardant le formatage.
+     * Les `\n` de séparation de paragraphes sont inclus dans les bornes comme dans le champ texte.
+     */
+    fun sezione(inizio: Int, fine: Int): TestoRicco {
+        val a = inizio.coerceIn(0, lunghezza)
+        val b = fine.coerceIn(a, lunghezza)
+        if (a == 0 && b == lunghezza) return this
+        if (a >= b) return VUOTO
+        val inizi = inizi()
+        val out = ArrayList<Paragrafo>()
+        for ((k, p) in paragrafi.withIndex()) {
+            val ps = inizi[k]
+            val pe = ps + p.lunghezza
+            // [ps, pe) = caractères du paragraphe ; le \n de séparation est à pe.
+            if (pe <= a || ps >= b) continue
+            if (ps >= a && pe <= b) {
+                out += p
+                continue
+            }
+            val fa = (a - ps).coerceIn(0, p.lunghezza)
+            val fb = (b - ps).coerceIn(0, p.lunghezza)
+            if (fa >= fb) continue
+            out += p.copy(frammenti = sottoFrammenti(p, fa, fb))
+        }
+        // Si la tranche tombe uniquement sur un \n, garder un paragraphe vide pour la stabilité.
+
+        return if (out.isEmpty()) VUOTO else TestoRicco(out).normalizzato()
+    }
+
+    private fun sottoFrammenti(p: Paragrafo, a: Int, b: Int): List<Frammento> {
+        if (a >= b) return emptyList()
+        val out = ArrayList<Frammento>()
+        var o = 0
+        for (fr in p.frammenti) {
+            val s = o
+            val e = o + fr.testo.length
+            o = e
+            if (e <= a || s >= b) continue
+            val x = maxOf(a, s) - s
+            val y = minOf(b, e) - s
+            out += fr.copy(testo = fr.testo.substring(x, y))
+        }
+        return out
+    }
+
     companion object {
         val VUOTO = TestoRicco(listOf(Paragrafo()))
+
+        /** Concatène des textes riches (paragraphes bout à bout). */
+        fun concat(parti: List<TestoRicco>): TestoRicco {
+            if (parti.isEmpty()) return VUOTO
+            if (parti.size == 1) return parti[0]
+            val out = ArrayList<Paragrafo>()
+            for ((k, t) in parti.withIndex()) {
+                if (k == 0) {
+                    out += t.paragrafi
+                    continue
+                }
+                // Deux textes non vides séparés : le dernier paragraphe du précédent et le premier
+                // du suivant restent distincts (comme deux pages collées avec un \n implicite déjà
+                // dans testoSemplice via la jointure des chaînes — ici on fusionne les listes).
+                out += t.paragrafi
+            }
+            return TestoRicco(out).normalizzato()
+        }
 
         /** Testo semplice (es. incollato): un paragrafo per riga, senza formato. */
         fun semplice(testo: String): TestoRicco = TestoRicco(

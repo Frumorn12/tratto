@@ -532,6 +532,7 @@ class Archive(
                     if (p.pdfPagina >= 0) w.name("pdf").value(p.pdfPagina.toLong())
                     w.name("w").value(p.larghezza.toDouble())
                     w.name("h").value(p.altezza.toDouble())
+                    if (p.layout != LayoutPagina.CANVAS) w.name("layout").value(p.layout.name)
                     w.endObject()
                 }
                 w.endArray().endObject()
@@ -549,6 +550,7 @@ class Archive(
                     while (r.hasNext()) {
                         var id = ""; var sfondo = Sfondo.BIANCO; var pdf = -1
                         var w = Foglio.LARGHEZZA; var h = Foglio.ALTEZZA
+                        var layout = LayoutPagina.CANVAS
                         r.beginObject()
                         while (r.hasNext()) when (r.nextName()) {
                             "id" -> id = r.nextString()
@@ -556,10 +558,11 @@ class Archive(
                             "pdf" -> pdf = r.nextInt()
                             "w" -> w = r.nextDouble().toFloat()
                             "h" -> h = r.nextDouble().toFloat()
+                            "layout" -> layout = runCatching { LayoutPagina.valueOf(r.nextString()) }.getOrDefault(LayoutPagina.CANVAS)
                             else -> r.skipValue()
                         }
                         r.endObject()
-                        out += Pagina(id, sfondo, pdf, w, h)
+                        out += Pagina(id, sfondo, pdf, w, h, layout)
                     }
                     r.endArray()
                 }

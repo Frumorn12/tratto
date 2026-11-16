@@ -314,6 +314,10 @@ class SheetView(context: Context) : View(context) {
             if (bmp != null) canvas.drawBitmap(bmp, null, rett, pBitmap)
             else if (livello == null) disegnaSfondo(canvas, p.pagina.sfondo, sx, sy, largoPagina, p.pagina.altezza)
 
+            if (p.pagina.layout == it.frumorn.tratto.data.LayoutPagina.DOCUMENT) {
+                disegnaMarginiDocumento(canvas, sx, sy, p.pagina)
+            }
+
             if (p.caricata) disegnaTratti(canvas, p, i, sx, sy)
             canvas.restoreToCount(s)
         }
@@ -353,6 +357,21 @@ class SheetView(context: Context) : View(context) {
             if (pronta) R.string.release_to_add_a_page else R.string.keep_pulling_for_a_new_page,
         )
         c.drawText(testo, cx, cy + raggio + 26 * densita, pTesto)
+    }
+
+    /** Guides discrets des marges du mode document (sous l'encre, sur le fond). */
+    private fun disegnaMarginiDocumento(c: Canvas, sx: Float, sy: Float, pagina: it.frumorn.tratto.data.Pagina) {
+        val z = DocumentMargins.zone(pagina)
+        val left = sx + z[0] * scala
+        val top = sy + z[1] * scala
+        val right = left + z[2] * scala
+        val bottom = top + z[3] * scala
+        pRighe.alpha = 40
+        c.drawLine(left, top, right, top, pRighe)
+        c.drawLine(left, bottom, right, bottom, pRighe)
+        c.drawLine(left, top, left, bottom, pRighe)
+        c.drawLine(right, top, right, bottom, pRighe)
+        pRighe.alpha = 255
     }
 
     private fun disegnaSfondo(c: Canvas, sfondo: Sfondo, sx: Float, sy: Float, larghezza: Float, altezza: Float) {

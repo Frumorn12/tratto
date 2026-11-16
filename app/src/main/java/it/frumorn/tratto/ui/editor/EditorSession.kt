@@ -274,6 +274,23 @@ class EditorSession(private val stato: AppState, val id: String, context: Contex
         programmaSalvataggio()
     }
 
+    /** Bascule la page visible entre canvas libre et format document (marges + reflow). */
+    fun cambiaLayout(layout: it.frumorn.tratto.data.LayoutPagina) {
+        val d = documento ?: return
+        vista.chiudiTesto()
+        vista.chiudiSelezione()
+        vista.deselezionaOggetto()
+        d.cambiaLayout(vista.foglio.paginaCorrente(), layout)
+        vista.foglio.dimenticaCache()
+        vista.ridisegna()
+        aggiornaStato()
+        programmaSalvataggio()
+    }
+
+    fun layoutPaginaCorrente(): it.frumorn.tratto.data.LayoutPagina =
+        documento?.pagine?.getOrNull(vista.foglio.paginaCorrente())?.pagina?.layout
+            ?: it.frumorn.tratto.data.LayoutPagina.CANVAS
+
     /** Tourne la page visible de 90° (horaire si [orario], sinon antihoraire). */
     fun ruotaPagina(orario: Boolean) {
         val d = documento ?: return
